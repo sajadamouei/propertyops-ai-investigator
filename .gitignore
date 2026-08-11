@@ -6,6 +6,7 @@ dist/
 wheels/
 data/synthetic/*.csv
 data/synthetic/*.png
+data/processed/*.csv
 *.egg-info
 
 # Virtual environments
