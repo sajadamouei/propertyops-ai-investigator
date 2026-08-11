@@ -73,3 +73,28 @@ class WorkOrder(BaseModel):
     created_at: datetime
     description: str
     status: WorkOrderStatus
+
+class IncidentSeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class TelemetryEvidence(BaseModel):
+    metric: str
+    value: float
+    unit: str | None = None
+    aggregation: str
+
+
+class OperationalIncident(BaseModel):
+    id: str
+    building_id: str
+    equipment_id: str
+    started_at: datetime
+    ended_at: datetime
+    severity: IncidentSeverity
+    anomaly_score: float
+    summary: str
+    evidence: list[TelemetryEvidence]
