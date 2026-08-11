@@ -1,0 +1,4 @@
+id,building_id,zone_id,timestamp,category,description
+COMP-001,BLDG-001,ZONE-003,2026-01-15 08:12:00,comfort,"Office is unusually cold this morning."
+COMP-002,BLDG-001,ZONE-003,2026-01-15 08:47:00,comfort,"Meeting rooms on the third floor feel much colder than normal."
+COMP-003,BLDG-001,ZONE-003,2026-01-15 09:21:00,comfort,"Several employees are reporting cold air from the ventilation system."
