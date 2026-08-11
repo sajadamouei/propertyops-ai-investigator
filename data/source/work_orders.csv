@@ -1,0 +1,4 @@
+id,building_id,equipment_id,created_at,description,status
+WO-001,BLDG-001,AHU-001,2025-11-18 10:15:00,"Investigated intermittent heating valve actuator response. Calibration temporarily restored normal operation.",closed
+WO-002,BLDG-001,AHU-001,2025-08-04 14:30:00,"Replaced AHU supply-air filter and verified fan operation.",closed
+WO-003,BLDG-001,HEATPUMP-001,2025-12-09 09:45:00,"Routine heat pump inspection completed with no faults detected.",closed
