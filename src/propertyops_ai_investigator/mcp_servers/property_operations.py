@@ -1,21 +1,14 @@
 from datetime import datetime
 from pathlib import Path
-
-import pandas as pd
-from mcp.server import MCPServer
-
 import csv
 from uuid import uuid4
 
+import pandas as pd
+from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 from propertyops_ai_investigator.domain.models import (
-    SensorReading,
-    TenantComplaint,
-    WorkOrder,
-)
-
-from propertyops_ai_investigator.domain.models import (
+    Sensor,
     SensorReading,
     TenantComplaint,
     WorkOrder,
@@ -23,18 +16,33 @@ from propertyops_ai_investigator.domain.models import (
     WorkOrderStatus,
 )
 
+
 WORK_ORDERS_PATH = Path("data/source/work_orders.csv")
 COMPLAINTS_PATH = Path("data/source/tenant_complaints.csv")
 TELEMETRY_PATH = Path("data/synthetic/sensor_readings.csv")
+SENSORS_PATH = Path("data/source/sensors.csv")
+
 RUNTIME_WORK_ORDERS_PATH = Path(
     "data/runtime/created_work_orders.csv"
 )
 
+
+def normalize_timestamp(
+    value: datetime,
+) -> pd.Timestamp:
+    timestamp = pd.Timestamp(value)
+
+    if timestamp.tzinfo is None:
+        return timestamp.tz_localize("UTC")
+
+    return timestamp.tz_convert("UTC")
+
+
 mcp = MCPServer(
     "Property Operations",
     instructions=(
-        "Provides read-only access to building telemetry, "
-        "tenant complaints, and maintenance history."
+        "Provides access to building telemetry, equipment sensors, "
+        "tenant complaints, maintenance history, and maintenance actions."
     ),
 )
 
@@ -80,6 +88,39 @@ def get_work_orders(
         openWorldHint=False,
     )
 )
+def get_equipment_sensors(
+    equipment_id: str,
+) -> list[Sensor]:
+    """List valid sensors available for equipment."""
+
+    df = pd.read_csv(
+        SENSORS_PATH,
+        keep_default_na=False,
+    )
+
+    matches = df[
+        df["equipment_id"] == equipment_id
+    ]
+
+    return [
+        Sensor(
+            id=row["sensor_id"],
+            equipment_id=row["equipment_id"] or None,
+            zone_id=row["zone_id"] or None,
+            sensor_type=row["sensor_type"],
+            unit=row["unit"],
+        )
+        for _, row in matches.iterrows()
+    ]
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
 def get_tenant_complaints(
     building_id: str,
     start: datetime,
@@ -88,15 +129,20 @@ def get_tenant_complaints(
 ) -> list[TenantComplaint]:
     """Get tenant complaints within a time window."""
 
-    df = pd.read_csv(
-        COMPLAINTS_PATH,
-        parse_dates=["timestamp"],
+    df = pd.read_csv(COMPLAINTS_PATH)
+
+    df["timestamp"] = pd.to_datetime(
+        df["timestamp"],
+        utc=True,
     )
+
+    start_timestamp = normalize_timestamp(start)
+    end_timestamp = normalize_timestamp(end)
 
     matches = df[
         (df["building_id"] == building_id)
-        & (df["timestamp"] >= start)
-        & (df["timestamp"] <= end)
+        & (df["timestamp"] >= start_timestamp)
+        & (df["timestamp"] <= end_timestamp)
     ]
 
     if zone_id is not None:
@@ -131,15 +177,20 @@ def get_telemetry(
 ) -> list[SensorReading]:
     """Get sensor readings for selected sensors and time window."""
 
-    df = pd.read_csv(
-        TELEMETRY_PATH,
-        parse_dates=["timestamp"],
+    df = pd.read_csv(TELEMETRY_PATH)
+
+    df["timestamp"] = pd.to_datetime(
+        df["timestamp"],
+        utc=True,
     )
+
+    start_timestamp = normalize_timestamp(start)
+    end_timestamp = normalize_timestamp(end)
 
     matches = df[
         (df["sensor_id"].isin(sensor_ids))
-        & (df["timestamp"] >= start)
-        & (df["timestamp"] <= end)
+        & (df["timestamp"] >= start_timestamp)
+        & (df["timestamp"] <= end_timestamp)
     ]
 
     return [
@@ -150,6 +201,7 @@ def get_telemetry(
         )
         for _, row in matches.iterrows()
     ]
+
 
 @mcp.tool(
     annotations=ToolAnnotations(
@@ -224,4 +276,6 @@ def create_work_order(
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    mcp.run(
+        transport="stdio",
+    )

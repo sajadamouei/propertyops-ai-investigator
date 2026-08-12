@@ -106,5 +106,11 @@ class WorkOrderCreationResult(BaseModel):
 class InvestigationAssessment(BaseModel):
     likely_issue: str
     confidence: float = Field(ge=0, le=1)
+
+    telemetry_findings: list[str]
+    maintenance_findings: list[str]
+    occupant_impact: list[str]
+
     evidence: list[str]
+
     recommended_next_step: str
