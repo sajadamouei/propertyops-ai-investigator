@@ -1,0 +1,6 @@
+sensor_id,equipment_id,zone_id,sensor_type,unit
+AHU01-POWER,AHU-001,,energy_power,kW
+AHU01-HEAT-VALVE,AHU-001,,valve_position,%
+AHU01-SUPPLY-TEMP,AHU-001,,temperature,C
+AHU01-FAN,AHU-001,,fan_status,state
+ZONE03-TEMP,,ZONE-003,temperature,C
