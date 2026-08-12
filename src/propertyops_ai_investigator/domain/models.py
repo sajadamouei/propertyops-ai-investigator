@@ -102,3 +102,9 @@ class OperationalIncident(BaseModel):
 class WorkOrderCreationResult(BaseModel):
     created: bool
     work_order: WorkOrder
+
+class InvestigationAssessment(BaseModel):
+    likely_issue: str
+    confidence: float = Field(ge=0, le=1)
+    evidence: list[str]
+    recommended_next_step: str
