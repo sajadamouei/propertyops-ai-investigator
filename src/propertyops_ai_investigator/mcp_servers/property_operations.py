@@ -4,17 +4,31 @@ from pathlib import Path
 import pandas as pd
 from mcp.server import MCPServer
 
+import csv
+from uuid import uuid4
+
+from mcp.types import ToolAnnotations
+
 from propertyops_ai_investigator.domain.models import (
     SensorReading,
     TenantComplaint,
     WorkOrder,
 )
 
+from propertyops_ai_investigator.domain.models import (
+    SensorReading,
+    TenantComplaint,
+    WorkOrder,
+    WorkOrderCreationResult,
+    WorkOrderStatus,
+)
 
 WORK_ORDERS_PATH = Path("data/source/work_orders.csv")
 COMPLAINTS_PATH = Path("data/source/tenant_complaints.csv")
 TELEMETRY_PATH = Path("data/synthetic/sensor_readings.csv")
-
+RUNTIME_WORK_ORDERS_PATH = Path(
+    "data/runtime/created_work_orders.csv"
+)
 
 mcp = MCPServer(
     "Property Operations",
@@ -25,7 +39,13 @@ mcp = MCPServer(
 )
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
 def get_work_orders(
     equipment_id: str,
 ) -> list[WorkOrder]:
@@ -53,7 +73,13 @@ def get_work_orders(
     ]
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
 def get_tenant_complaints(
     building_id: str,
     start: datetime,
@@ -91,7 +117,13 @@ def get_tenant_complaints(
     ]
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
 def get_telemetry(
     sensor_ids: list[str],
     start: datetime,
@@ -118,6 +150,77 @@ def get_telemetry(
         )
         for _, row in matches.iterrows()
     ]
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=False,
+    )
+)
+def create_work_order(
+    building_id: str,
+    equipment_id: str,
+    description: str,
+) -> WorkOrderCreationResult:
+    """Create a maintenance work order.
+
+    This changes application state and should only be called
+    after explicit user approval.
+    """
+
+    work_order = WorkOrder(
+        id=f"WO-{uuid4().hex[:8].upper()}",
+        building_id=building_id,
+        equipment_id=equipment_id,
+        created_at=datetime.now(),
+        description=description,
+        status=WorkOrderStatus.OPEN,
+    )
+
+    RUNTIME_WORK_ORDERS_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    file_exists = RUNTIME_WORK_ORDERS_PATH.exists()
+
+    with RUNTIME_WORK_ORDERS_PATH.open(
+        "a",
+        newline="",
+        encoding="utf-8",
+    ) as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "id",
+                "building_id",
+                "equipment_id",
+                "created_at",
+                "description",
+                "status",
+            ],
+        )
+
+        if not file_exists:
+            writer.writeheader()
+
+        writer.writerow(
+            {
+                "id": work_order.id,
+                "building_id": work_order.building_id,
+                "equipment_id": work_order.equipment_id,
+                "created_at": work_order.created_at.isoformat(),
+                "description": work_order.description,
+                "status": work_order.status.value,
+            }
+        )
+
+    return WorkOrderCreationResult(
+        created=True,
+        work_order=work_order,
+    )
 
 
 if __name__ == "__main__":

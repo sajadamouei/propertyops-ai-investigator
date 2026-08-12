@@ -14,7 +14,10 @@ async def main() -> None:
         print("Available tools:")
 
         for tool in tools.tools:
-            print(f"- {tool.name}: {tool.description}")
+            print(
+                f"- {tool.name} | "
+                f"annotations={tool.annotations}"
+            )
 
         print()
         print("Maintenance history:")
@@ -58,8 +61,6 @@ async def main() -> None:
                 "end": "2026-01-15T05:00:00",
             },
         )
-
-        print(telemetry.structured_content)
 
 
 if __name__ == "__main__":

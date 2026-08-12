@@ -98,3 +98,7 @@ class OperationalIncident(BaseModel):
     anomaly_score: float
     summary: str
     evidence: list[TelemetryEvidence]
+
+class WorkOrderCreationResult(BaseModel):
+    created: bool
+    work_order: WorkOrder
