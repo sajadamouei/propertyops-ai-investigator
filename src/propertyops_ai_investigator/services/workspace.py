@@ -15,6 +15,13 @@ CURRENT_RUN_DIR = Path(
     "data/runtime/current_run"
 )
 
+RAW_TELEMETRY_FILE = "raw_telemetry.csv"
+FEATURES_FILE = "features.csv"
+ANOMALY_SCORES_FILE = "anomaly_scores.csv"
+EVENTS_FILE = "events.csv"
+DETECTION_FILE = "detection.json"
+INCIDENT_FILE = "incident.json"
+
 
 class PipelineStep(str, Enum):
     GENERATE_DATA = "generate_data"
