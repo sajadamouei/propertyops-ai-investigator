@@ -8,6 +8,15 @@ from propertyops_ai_investigator.ml.features import (
 )
 
 
+EVENT_COLUMNS = [
+    "event_id",
+    "start",
+    "end",
+    "points",
+    "max_anomaly_score",
+    "mean_anomaly_score",
+]
+
 TRAIN_END = pd.Timestamp("2026-01-14 23:00")
 
 OUTPUT_PATH = Path(
@@ -79,7 +88,9 @@ def build_events(
     )
 
     if anomalies.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(
+            columns=EVENT_COLUMNS
+        )
 
     time_gap = anomalies["timestamp"].diff()
 
@@ -119,7 +130,9 @@ def build_events(
         events["points"] >= 2
     ]
 
-    return events
+    return events.reindex(
+        columns=EVENT_COLUMNS
+    )
 
 
 if __name__ == "__main__":
