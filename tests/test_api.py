@@ -10,77 +10,9 @@ client = TestClient(app)
 
 def heating_fault_payload() -> dict:
     return {
-        "config": {
-            "scenario": (
-                "heating_valve_fault"
-            ),
-            "days": 14,
-            "seed": 42,
-            "start_at": (
-                "2026-01-05T00:00:00"
-            ),
-            "faults": [
-                {
-                    "sensor_id": "AHU01-FAN",
-                    "fault_type": "stuck",
-                    "start": (
-                        "2026-01-15T01:00:00"
-                    ),
-                    "end": (
-                        "2026-01-15T05:00:00"
-                    ),
-                    "value": 1.0,
-                },
-                {
-                    "sensor_id": "AHU01-POWER",
-                    "fault_type": "offset",
-                    "start": (
-                        "2026-01-15T01:00:00"
-                    ),
-                    "end": (
-                        "2026-01-15T05:00:00"
-                    ),
-                    "value": 117.0,
-                },
-                {
-                    "sensor_id": (
-                        "AHU01-HEAT-VALVE"
-                    ),
-                    "fault_type": "offset",
-                    "start": (
-                        "2026-01-15T01:00:00"
-                    ),
-                    "end": (
-                        "2026-01-15T05:00:00"
-                    ),
-                    "value": 87.0,
-                },
-                {
-                    "sensor_id": (
-                        "AHU01-SUPPLY-TEMP"
-                    ),
-                    "fault_type": "offset",
-                    "start": (
-                        "2026-01-15T01:00:00"
-                    ),
-                    "end": (
-                        "2026-01-15T05:00:00"
-                    ),
-                    "value": -2.5,
-                },
-                {
-                    "sensor_id": "ZONE03-TEMP",
-                    "fault_type": "offset",
-                    "start": (
-                        "2026-01-15T06:00:00"
-                    ),
-                    "end": (
-                        "2026-01-15T10:00:00"
-                    ),
-                    "value": -2.9,
-                },
-            ],
-        }
+        "scenario": "heating_valve_fault",
+        "days": 14,
+        "seed": 42,
     }
 
 
@@ -152,6 +84,19 @@ def test_heating_fault_pipeline_through_api():
 
 
 def test_artifact_endpoint_returns_rows():
+    reset_response = client.post(
+        "/api/runs/reset",
+        json=heating_fault_payload(),
+    )
+
+    assert reset_response.status_code == 200
+
+    generate_response = client.post(
+        "/api/pipeline/generate"
+    )
+
+    assert generate_response.status_code == 200
+
     response = client.get(
         "/api/artifacts/raw-telemetry",
         params={
@@ -168,19 +113,16 @@ def test_artifact_endpoint_returns_rows():
 
 
 def test_pipeline_rejects_out_of_order_step():
-    client.post(
+    reset_response = client.post(
         "/api/runs/reset",
         json={
-            "config": {
-                "scenario": (
-                    "normal_operation"
-                ),
-                "days": 14,
-                "seed": 42,
-                "faults": [],
-            }
+            "scenario": "normal_operation",
+            "days": 14,
+            "seed": 42,
         },
     )
+
+    assert reset_response.status_code == 200
 
     response = client.post(
         "/api/pipeline/features"

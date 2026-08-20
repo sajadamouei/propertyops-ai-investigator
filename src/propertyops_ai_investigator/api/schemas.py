@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from propertyops_ai_investigator.data.experiment import (
     ExperimentConfig,
@@ -13,9 +13,21 @@ from propertyops_ai_investigator.services.workspace import (
     RunManifest,
 )
 
+from propertyops_ai_investigator.data.experiment import (
+    FaultSpec,
+    ScenarioType,
+)
+
 
 class ResetRunRequest(BaseModel):
-    config: ExperimentConfig
+    scenario: ScenarioType
+
+    days: int = 14
+    seed: int = 42
+
+    faults: list[FaultSpec] = Field(
+        default_factory=list
+    )
 
 
 class RunResponse(BaseModel):

@@ -28,6 +28,12 @@ from propertyops_ai_investigator.services.workspace import (
     reset_current_run,
 )
 
+from propertyops_ai_investigator.data.experiment import (
+    ExperimentConfig,
+    ScenarioType,
+    create_scenario_config,
+)
+
 
 app = FastAPI(
     title="PropertyOps AI Investigator API",
@@ -79,8 +85,22 @@ def get_current_run() -> RunResponse:
 def reset_run(
     request: ResetRunRequest,
 ) -> RunResponse:
+    if request.scenario == ScenarioType.CUSTOM_FAULT:
+        config = ExperimentConfig(
+            scenario=request.scenario,
+            days=request.days,
+            seed=request.seed,
+            faults=request.faults,
+        )
+    else:
+        config = create_scenario_config(
+            request.scenario,
+            days=request.days,
+            seed=request.seed,
+        )
+
     manifest = reset_current_run(
-        request.config
+        config
     )
 
     return RunResponse(

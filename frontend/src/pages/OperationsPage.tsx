@@ -42,7 +42,7 @@ export function OperationsPage() {
           </div>
           <div className="incident-meta">
             <div><span>Equipment</span><strong>{operationsView.incident.equipmentId}</strong><small>{operationsView.incident.equipmentName}</small></div>
-            <div><span>Incident window</span><strong>15 Jan 2026 · 01:00–05:00</strong><small>5 consecutive hours</small></div>
+            <div><span>Incident window</span><strong>{formatIncidentWindow(operationsView.incident.startedAt, operationsView.incident.endedAt)}</strong><small>{formatDuration(operationsView.incident.startedAt, operationsView.incident.endedAt)}</small></div>
             <div><span>Investigation</span><strong className="status-inline"><CheckCircle2 size={15} /> {investigationCopy.label}</strong><small>{investigationCopy.detail}</small></div>
             <div><span>Incident ID</span><strong>{operationsView.incident.id}</strong><small>{operationsView.incident.zoneId} affected</small></div>
           </div>
@@ -50,13 +50,13 @@ export function OperationsPage() {
       </section>
 
       <section className="summary-grid" aria-label="Incident summary">
-        <article className="stat-card"><div className="stat-icon score"><Sparkles size={18} /></div><div><span>Anomaly score</span><strong>{operationsView.incident.anomalyScore.toFixed(4)}</strong><small>Above 0.6069 threshold</small></div></article>
+        <article className="stat-card"><div className="stat-icon score"><Sparkles size={18} /></div><div><span>Anomaly score</span><strong>{operationsView.incident.anomalyScore.toFixed(4)}</strong><small>{operationsView.detectionThreshold === undefined ? 'Detection threshold unavailable' : `Above ${operationsView.detectionThreshold.toFixed(4)} threshold`}</small></div></article>
         <article className="stat-card"><div className="stat-icon complaints"><MessageSquareText size={18} /></div><div><span>Tenant complaints</span><strong>{evidenceReady ? operationsView.complaintsCount : '—'}</strong><small>{evidenceReady ? `Cold comfort · ${operationsView.incident.zoneId}` : 'Investigation pending'}</small></div></article>
         <article className="stat-card"><div className="stat-icon state"><Wrench size={18} /></div><div><span>Equipment status</span><strong>{operationsView.investigationStatus === 'approved' ? 'Inspection approved' : operationsView.investigationStatus === 'rejected' ? 'Action declined' : 'Needs inspection'}</strong><small>AHU is currently operational</small></div></article>
       </section>
 
       <div className="operations-main-grid">
-        <TelemetryChart data={operationsView.telemetry} />
+        <TelemetryChart data={operationsView.telemetry} incidentStart={operationsView.incident.startedAt} incidentEnd={operationsView.incident.endedAt} />
         <aside className="panel assessment-card">
           {assessmentReady ? (
             <>
@@ -111,13 +111,13 @@ export function OperationsPage() {
           <div><span className="eyebrow">Recommended next action</span><h2>Pending investigation</h2><p>Complete the evidence and assessment stages before preparing an operational action.</p></div>
         </section>
       )}
-      <footer className="page-footer"><ClipboardList size={14} /> Prototype view · Data and decisions remain in the browser</footer>
+      <footer className="page-footer"><ClipboardList size={14} /> Property operations investigation view</footer>
     </div>
   )
 }
 
 function OperationsNormalState() {
-  const { runState } = useDemoRun()
+  const { runState, backendResults } = useDemoRun()
   const normalConfirmed = runState.detectionOutcome === 'normal'
   const anomalyInProgress = runState.detectionOutcome === 'anomaly_detected'
   const headerTitle = normalConfirmed ? 'No active incidents' : anomalyInProgress ? 'Incident analysis in progress' : 'No active investigation'
@@ -139,7 +139,7 @@ function OperationsNormalState() {
           <div className="incident-meta">
             <div><span>Building</span><strong>BLDG-001</strong><small>Property operations</small></div>
             <div><span>Latest pipeline run</span><strong>{runState.isRunning ? 'In progress' : normalConfirmed ? 'Completed' : anomalyInProgress ? 'In progress' : 'Not run'}</strong><small>{runState.config.scenario === 'normal' ? 'Normal Operation' : runState.config.scenario === 'fault' ? 'Heating Valve Fault' : 'Custom Fault'}</small></div>
-            <div><span>Anomaly detection</span><strong className="status-inline"><CheckCircle2 size={15} /> {normalConfirmed ? 'No anomaly detected' : anomalyInProgress ? 'Anomaly detected' : 'Awaiting run'}</strong><small>{normalConfirmed ? 'Detection threshold 0.6069' : 'Pipeline status is synchronized'}</small></div>
+            <div><span>Anomaly detection</span><strong className="status-inline"><CheckCircle2 size={15} /> {normalConfirmed ? 'No anomaly detected' : anomalyInProgress ? 'Anomaly detected' : 'Awaiting run'}</strong><small>{normalConfirmed && backendResults.detectionSummary ? `Detection threshold ${backendResults.detectionSummary.threshold.toFixed(4)}` : 'Pipeline status is synchronized'}</small></div>
             <div><span>Work order</span><strong>{normalConfirmed ? 'Not required' : 'None created'}</strong><small>No pending maintenance action</small></div>
           </div>
         </div>
@@ -159,7 +159,17 @@ function OperationsNormalState() {
           <p>{normalConfirmed ? 'Generate Data, Feature Engineering, and Anomaly Detection completed successfully. No incident was created, downstream investigation stages were skipped, and no work order is required.' : anomalyInProgress ? 'An anomaly was detected. This view will update automatically when the incident and assessment stages complete.' : 'Select and run a scenario in the Lab. Results and approval decisions will stay synchronized here during this browser session.'}</p>
         </div>
       </section>
-      <footer className="page-footer"><ClipboardList size={14} /> Prototype view · Data and decisions remain in the browser</footer>
+      <footer className="page-footer"><ClipboardList size={14} /> Property operations investigation view</footer>
     </div>
   )
+}
+
+function formatIncidentWindow(start: string, end: string): string {
+  const formatter = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return `${formatter.format(new Date(start))} – ${formatter.format(new Date(end))}`
+}
+
+function formatDuration(start: string, end: string): string {
+  const hours = Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 3_600_000) + 1)
+  return `${hours} consecutive ${hours === 1 ? 'hour' : 'hours'}`
 }
