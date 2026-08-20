@@ -126,6 +126,7 @@ export interface LabRunState {
   workOrderDecision: WorkOrderDecision
   detectionOutcome: DetectionOutcome
   isRunning: boolean
+  stageErrors: Partial<Record<PipelineStageId, string>>
 }
 
 export type InspectorTab = 'overview' | 'inputs' | 'outputs' | 'visuals'
@@ -138,4 +139,5 @@ export interface OperationsView {
   complaintsCount: number
   investigationStatus: 'investigating' | 'assessment_ready' | 'approved' | 'rejected'
   proposedWorkOrder: ProposedWorkOrder
+  detectionThreshold?: number
 }

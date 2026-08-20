@@ -8,6 +8,7 @@ import { useDemoRun } from '../state/DemoRunContext'
 export function LabPage() {
   const {
     runState,
+    backendResults,
     setExperimentConfig,
     resetRun,
     runNextStep,
@@ -26,7 +27,7 @@ export function LabPage() {
     <div className="lab-page">
       <div className="lab-page-inner">
         <header className="lab-page-header">
-          <div><span className="lab-title-icon"><FlaskConical size={18} /></span><div><span className="lab-eyebrow">Engineering workspace</span><h1>Investigation Lab</h1><p>Step through the complete AI pipeline using local, deterministic demo state.</p></div></div>
+          <div><span className="lab-title-icon"><FlaskConical size={18} /></span><div><span className="lab-eyebrow">Engineering workspace</span><h1>Investigation Lab</h1><p>Step through the pipeline using deterministic backend outputs and staged AI simulation.</p></div></div>
           <div className="run-summary"><span>{completed} / 9 complete</span><div><i style={{ width: `${(completed / 9) * 100}%` }} /></div>{runState.stages.some((stage) => stage.status === 'waiting') && <small><PauseCircle size={13} /> Waiting for approval</small>}</div>
         </header>
         <ExperimentControls
@@ -40,13 +41,14 @@ export function LabPage() {
         <Pipeline stages={runState.stages} selectedId={runState.selectedStageId} onSelect={selectStage} />
         <StageInspector
           stage={selectedStage}
-          config={runState.config}
           activeTab={runState.activeTab}
           onTabChange={setInspectorTab}
           approvalDecision={runState.workOrderDecision}
           onApprovalDecision={decideWorkOrder}
+          backendResults={backendResults}
+          stageError={runState.stageErrors[selectedStage.id]}
         />
-        <footer className="lab-footer"><span className={`scenario-dot scenario-${runState.config.scenario}`} /> Frontend simulation only · No backend calls are made</footer>
+        <footer className="lab-footer"><span className={`scenario-dot scenario-${runState.config.scenario}`} /> Stages 1–4 use the FastAPI backend · Stages 5–9 remain simulated</footer>
       </div>
     </div>
   )

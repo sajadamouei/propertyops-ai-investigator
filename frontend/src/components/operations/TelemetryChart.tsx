@@ -19,10 +19,12 @@ const metricConfig: Record<Metric, { label: string; unit: string; color: string;
   supplyAirTempC: { label: 'Supply air', unit: '°C', color: '#168275', domain: [10, 22] },
 }
 
-export function TelemetryChart({ data }: { data: TelemetryPoint[] }) {
+export function TelemetryChart({ data, incidentStart, incidentEnd }: { data: TelemetryPoint[]; incidentStart: string; incidentEnd: string }) {
   const [metric, setMetric] = useState<Metric>('powerKw')
   const gradientId = useId().replace(/:/g, '')
   const config = metricConfig[metric]
+  const incidentStartLabel = data.find((point) => point.timestamp === incidentStart)?.label
+  const incidentEndLabel = data.find((point) => point.timestamp === incidentEnd)?.label
 
   return (
     <section className="panel telemetry-panel">
@@ -54,12 +56,12 @@ export function TelemetryChart({ data }: { data: TelemetryPoint[] }) {
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#69706a' }} axisLine={false} tickLine={false} interval={1} />
             <YAxis domain={config.domain} tick={{ fontSize: 11, fill: '#69706a' }} axisLine={false} tickLine={false} unit={config.unit === '°C' ? '°' : ''} />
             <Tooltip content={<TelemetryTooltip metric={metric} />} />
-            <ReferenceArea x1="01:00" x2="05:00" fill={`url(#${gradientId})`} />
+            {incidentStartLabel && incidentEndLabel && <ReferenceArea x1={incidentStartLabel} x2={incidentEndLabel} fill={`url(#${gradientId})`} />}
             <Line type="monotone" dataKey={metric} stroke={config.color} strokeWidth={2.5} dot={{ r: 3, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 5 }} />
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <p className="chart-caption">The anomaly begins at 01:00: power and valve demand rise sharply outside scheduled occupancy.</p>
+      <p className="chart-caption">Telemetry shown for the real incident window, with two hours of surrounding operating context.</p>
     </section>
   )
 }
