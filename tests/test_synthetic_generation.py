@@ -12,6 +12,48 @@ from propertyops_ai_investigator.data.generate_synthetic import (
     generate_sensor_readings,
 )
 
+from propertyops_ai_investigator.ml.features import (
+    build_feature_table,
+)
+
+def test_missing_sensor_data_is_imputed_for_features():
+    config = create_scenario_config(
+        ScenarioType.NORMAL_OPERATION
+    )
+
+    base = generate_base_telemetry(
+        config
+    )
+
+    fault = FaultSpec(
+        sensor_id="AHU01-POWER",
+        fault_type=FaultType.MISSING,
+        start=pd.Timestamp(
+            "2026-01-15 01:00"
+        ),
+        end=pd.Timestamp(
+            "2026-01-15 03:00"
+        ),
+    )
+
+    faulty = apply_faults(
+        base,
+        [fault],
+    )
+
+    assert faulty["value"].isna().any()
+
+    features = build_feature_table(
+        faulty
+    )
+
+    assert (
+        features["power_kw"]
+        .isna()
+        .sum()
+        == 0
+    )
+
 
 def test_normal_generation_has_expected_shape():
     config = create_scenario_config(

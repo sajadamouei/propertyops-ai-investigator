@@ -15,6 +15,65 @@ SENSOR_COLUMNS = {
     "AHU01-FAN": "fan_status",
 }
 
+CONTINUOUS_FEATURES = [
+    "power_kw",
+    "heating_valve_pct",
+    "supply_air_temp_c",
+    "zone_temp_c",
+]
+
+DISCRETE_FEATURES = [
+    "fan_status",
+]
+
+def impute_missing_features(
+    features: pd.DataFrame,
+) -> pd.DataFrame:
+    """Impute missing sensor values for ML processing."""
+
+    result = features.copy()
+
+    # Continuous telemetry:
+    # interpolate between neighboring measurements.
+    result[CONTINUOUS_FEATURES] = (
+        result[CONTINUOUS_FEATURES]
+        .interpolate(
+            method="linear",
+            limit_direction="both",
+        )
+    )
+
+    # Discrete state such as fan on/off:
+    # carry the last known state rather than creating
+    # fractional values such as 0.5.
+    result[DISCRETE_FEATURES] = (
+        result[DISCRETE_FEATURES]
+        .ffill()
+        .bfill()
+    )
+
+    sensor_features = (
+        CONTINUOUS_FEATURES
+        + DISCRETE_FEATURES
+    )
+
+    remaining_missing = (
+        result[sensor_features]
+        .isna()
+        .sum()
+    )
+
+    unresolved = remaining_missing[
+        remaining_missing > 0
+    ]
+
+    if not unresolved.empty:
+        raise ValueError(
+            "Unable to impute all missing sensor values: "
+            f"{unresolved.to_dict()}"
+        )
+
+    return result
 
 def build_feature_table(df: pd.DataFrame) -> pd.DataFrame:
     features = (
@@ -28,6 +87,9 @@ def build_feature_table(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     features["timestamp"] = pd.to_datetime(features["timestamp"])
+    features = impute_missing_features(
+        features
+    )
 
     features["hour"] = features["timestamp"].dt.hour
     features["is_weekday"] = (
