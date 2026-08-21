@@ -21,6 +21,7 @@ ANOMALY_SCORES_FILE = "anomaly_scores.csv"
 EVENTS_FILE = "events.csv"
 DETECTION_FILE = "detection.json"
 INCIDENT_FILE = "incident.json"
+RAG_RESULTS_FILE = "rag_results.json"
 
 
 class PipelineStep(str, Enum):

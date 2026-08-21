@@ -18,6 +18,12 @@ from propertyops_ai_investigator.data.experiment import (
     ScenarioType,
 )
 
+from pydantic import BaseModel, Field
+
+from propertyops_ai_investigator.rag.retriever import (
+    RetrievalResult,
+)
+
 
 class ResetRunRequest(BaseModel):
     scenario: ScenarioType
@@ -63,3 +69,20 @@ class ArtifactTableResponse(BaseModel):
     columns: list[str]
     rows: list[dict[str, Any]]
     total_rows: int
+
+class RagStageRequest(BaseModel):
+    query: str | None = None
+
+    k: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+    )
+
+
+class RagStageResponse(BaseModel):
+    step: PipelineStep
+    query: str
+    retrieval_queries: list[str]
+    embedding_model: str
+    results: list[RetrievalResult]
