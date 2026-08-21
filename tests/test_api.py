@@ -134,3 +134,86 @@ def test_pipeline_rejects_out_of_order_step():
         "raw_telemetry.csv"
         in response.json()["detail"]
     )
+
+def test_rag_pipeline_through_api():
+    response = client.post(
+        "/api/runs/reset",
+        json={
+            "scenario": "heating_valve_fault",
+            "days": 14,
+            "seed": 42,
+        },
+    )
+
+    assert response.status_code == 200
+
+    assert (
+        client.post(
+            "/api/pipeline/generate"
+        ).status_code
+        == 200
+    )
+
+    assert (
+        client.post(
+            "/api/pipeline/features"
+        ).status_code
+        == 200
+    )
+
+    assert (
+        client.post(
+            "/api/pipeline/detect"
+        ).status_code
+        == 200
+    )
+
+    assert (
+        client.post(
+            "/api/pipeline/incident"
+        ).status_code
+        == 200
+    )
+
+    rag = client.post(
+        "/api/pipeline/rag",
+        json={
+            "k": 3,
+        },
+    )
+
+    assert rag.status_code == 200
+
+    data = rag.json()
+
+    assert (
+        len(
+            data["retrieval_queries"]
+        )
+        == 2
+    )
+
+    assert len(
+        data["results"]
+    ) == 3
+
+    sources = {
+        result["source"]
+        for result in data["results"]
+    }
+
+    assert (
+        "01_heating_valve_troubleshooting.md"
+        in sources
+    )
+
+    assert (
+        "02_after_hours_ahu_operation.md"
+        in sources
+    )
+
+    artifact = client.get(
+        "/api/artifacts/rag"
+    )
+
+    assert artifact.status_code == 200

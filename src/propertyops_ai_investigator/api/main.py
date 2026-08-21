@@ -23,6 +23,7 @@ from propertyops_ai_investigator.services.workspace import (
     EVENTS_FILE,
     FEATURES_FILE,
     RAW_TELEMETRY_FILE,
+    RAG_RESULTS_FILE,
     PipelineStep,
     load_manifest,
     reset_current_run,
@@ -32,6 +33,17 @@ from propertyops_ai_investigator.data.experiment import (
     ExperimentConfig,
     ScenarioType,
     create_scenario_config,
+)
+
+from propertyops_ai_investigator.api.schemas import (
+    # keep existing imports
+    RagStageRequest,
+    RagStageResponse,
+)
+
+from propertyops_ai_investigator.services.rag_service import (
+    RagArtifact,
+    RagService,
 )
 
 
@@ -325,6 +337,62 @@ def get_detection_summary() -> dict:
         )
 
     return json.loads(
+        path.read_text(
+            encoding="utf-8"
+        )
+    )
+    
+@app.post(
+    "/api/pipeline/rag",
+    response_model=RagStageResponse,
+)
+def run_rag(
+    request: RagStageRequest,
+) -> RagStageResponse:
+    try:
+        artifact = RagService().run(
+            query=request.query,
+            k=request.k,
+        )
+
+    except (
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+    return RagStageResponse(
+        step=PipelineStep.RAG,
+        query=artifact.query,
+        retrieval_queries=(
+            artifact.retrieval_queries
+        ),
+        embedding_model=(
+            artifact.embedding_model
+        ),
+        results=artifact.results,
+    )
+    
+@app.get(
+    "/api/artifacts/rag",
+    response_model=RagArtifact,
+)
+def get_rag_results() -> RagArtifact:
+    path = (
+        CURRENT_RUN_DIR
+        / RAG_RESULTS_FILE
+    )
+
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="RAG artifact not found.",
+        )
+
+    return RagArtifact.model_validate_json(
         path.read_text(
             encoding="utf-8"
         )
