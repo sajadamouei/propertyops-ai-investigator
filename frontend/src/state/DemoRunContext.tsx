@@ -13,7 +13,9 @@ import type {
 } from '../types'
 
 const WORK_ORDER_ID = 'WO-DEMO-1042'
-const REAL_STAGE_IDS: PipelineStageId[] = ['generate', 'features', 'detection', 'incident']
+const FOUNDATION_REAL_STAGE_IDS: PipelineStageId[] = ['generate', 'features', 'detection', 'incident']
+const REAL_STAGE_IDS: PipelineStageId[] = [...FOUNDATION_REAL_STAGE_IDS, 'rag']
+const NO_INCIDENT_STAGE_IDS: PipelineStageId[] = ['incident', 'investigation', 'rag', 'assessment', 'approval', 'work-order']
 
 export const defaultExperimentConfig: ExperimentConfig = {
   scenario: 'fault',
@@ -44,6 +46,7 @@ function emptyBackendResults(): RealPipelineResults {
     events: null,
     detectionSummary: null,
     incidentStage: null,
+    ragStage: null,
   }
 }
 
@@ -296,12 +299,19 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
         ...current,
         detectionOutcome: 'normal',
         stages: current.stages.map((stage) => (
-          stage.id === 'incident' || !REAL_STAGE_IDS.includes(stage.id)
+          NO_INCIDENT_STAGE_IDS.includes(stage.id)
             ? { ...stage, status: 'skipped' }
             : stage
         )),
       }))
       return false
+    }
+
+    if (stageId === 'rag') {
+      const ragStage = await propertyOpsApi.rag({ k: 3 })
+      setBackendResults((current) => ({ ...current, ragStage }))
+      completeStage(stageId)
+      return true
     }
 
     return true
@@ -351,7 +361,7 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
     let activeStage: PipelineStageId = 'generate'
     try {
       await initializeBackend(config, true)
-      for (const stageId of REAL_STAGE_IDS) {
+      for (const stageId of FOUNDATION_REAL_STAGE_IDS) {
         activeStage = stageId
         startStage(stageId)
         const shouldContinue = await executeRealStage(stageId, config)
@@ -361,7 +371,15 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      for (const stageId of ['investigation', 'rag', 'assessment', 'approval'] as PipelineStageId[]) {
+      activeStage = 'investigation'
+      startStage(activeStage)
+      await executeMockStage(activeStage)
+
+      activeStage = 'rag'
+      startStage(activeStage)
+      await executeRealStage(activeStage, config)
+
+      for (const stageId of ['assessment', 'approval'] as PipelineStageId[]) {
         activeStage = stageId
         startStage(stageId)
         await executeMockStage(stageId)

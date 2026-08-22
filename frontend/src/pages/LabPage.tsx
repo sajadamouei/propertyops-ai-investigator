@@ -48,7 +48,7 @@ export function LabPage() {
           backendResults={backendResults}
           stageError={runState.stageErrors[selectedStage.id]}
         />
-        <footer className="lab-footer"><span className={`scenario-dot scenario-${runState.config.scenario}`} /> Stages 1–4 use the FastAPI backend · Stages 5–9 remain simulated</footer>
+        <footer className="lab-footer"><span className={`scenario-dot scenario-${runState.config.scenario}`} /> Stages 1–4 and 6 use the FastAPI backend · Stages 5 and 7–9 remain simulated</footer>
       </div>
     </div>
   )

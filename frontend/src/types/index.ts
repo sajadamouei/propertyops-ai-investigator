@@ -87,14 +87,6 @@ export interface McpToolCall {
   status: 'complete' | 'failed'
 }
 
-export interface RagRetrieval {
-  id: string
-  source: string
-  section: string
-  content: string
-  score: number
-}
-
 export interface InvestigationAssessmentView {
   likelyIssue: string
   confidence: number

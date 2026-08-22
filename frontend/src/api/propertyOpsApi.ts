@@ -93,6 +93,26 @@ export interface IncidentStageResponse {
   incident: OperationalIncidentResponse | null
 }
 
+export interface RagStageRequest {
+  query?: string | null
+  k?: number
+}
+
+export interface RagRetrievalResult {
+  chunk_id: string
+  source: string
+  text: string
+  score: number
+}
+
+export interface RagStageResponse {
+  step: 'rag'
+  query: string
+  retrieval_queries: string[]
+  embedding_model: string
+  results: RagRetrievalResult[]
+}
+
 export interface ArtifactTableResponse {
   columns: string[]
   rows: Array<Record<string, unknown>>
@@ -116,6 +136,7 @@ export interface RealPipelineResults {
   events: ArtifactTableResponse | null
   detectionSummary: DetectionSummaryResponse | null
   incidentStage: IncidentStageResponse | null
+  ragStage: RagStageResponse | null
 }
 
 const post = <T>(path: string, body?: unknown) => apiRequest<T>(path, {
@@ -132,6 +153,7 @@ export const propertyOpsApi = {
   features: () => post<FeatureStageResponse>('/api/pipeline/features'),
   detect: () => post<DetectionStageResponse>('/api/pipeline/detect'),
   incident: () => post<IncidentStageResponse>('/api/pipeline/incident'),
+  rag: (request: RagStageRequest) => post<RagStageResponse>('/api/pipeline/rag', request),
   rawTelemetry: (limit?: number) => artifact('/api/artifacts/raw-telemetry', limit),
   featureArtifact: (limit?: number) => artifact('/api/artifacts/features', limit),
   anomalyScores: (limit?: number) => artifact('/api/artifacts/anomaly-scores', limit),

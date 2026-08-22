@@ -1,7 +1,7 @@
 import { AlertCircle, Box, CheckCircle2, Database, FileSearch, Gauge, Info, Search, Wrench } from 'lucide-react'
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { RealPipelineResults } from '../../api/propertyOpsApi'
-import { mcpCalls, operationsView, ragRetrievals } from '../../mocks/mockData'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import type { RagStageResponse, RealPipelineResults } from '../../api/propertyOpsApi'
+import { mcpCalls, operationsView } from '../../mocks/mockData'
 import type { InspectorTab, PipelineStage, PipelineStageId } from '../../types'
 import { StageStatusBadge } from '../common/Badges'
 
@@ -19,13 +19,12 @@ const tabs: InspectorTab[] = ['overview', 'inputs', 'outputs', 'visuals']
 
 const stageFacts: Partial<Record<PipelineStageId, Array<{ label: string; value: string }>>> = {
   investigation: [{ label: 'Tool calls', value: '4' }, { label: 'Sources', value: '3' }, { label: 'Write calls', value: '0' }],
-  rag: [{ label: 'Query', value: '1' }, { label: 'Retrieved', value: '3 chunks' }, { label: 'Top score', value: '0.93' }],
   assessment: [{ label: 'Confidence', value: '85%' }, { label: 'Evidence items', value: '7' }, { label: 'Schema', value: 'Valid' }],
   approval: [{ label: 'Decision', value: 'Required' }, { label: 'Priority', value: 'High' }, { label: 'Side effects', value: 'Blocked' }],
   'work-order': [{ label: 'Work order', value: 'WO-DEMO-1042' }, { label: 'Status', value: 'Open' }, { label: 'Target', value: 'AHU-001' }],
 }
 
-const realStageIds: PipelineStageId[] = ['generate', 'features', 'detection', 'incident']
+const realStageIds: PipelineStageId[] = ['generate', 'features', 'detection', 'incident', 'rag']
 
 export function StageInspector({ stage, activeTab, onTabChange, approvalDecision, onApprovalDecision, backendResults, stageError }: StageInspectorProps) {
   const isRealStage = realStageIds.includes(stage.id)
@@ -81,6 +80,10 @@ function RealOverview({ stageId, results }: { stageId: PipelineStageId; results:
     if (!results.detectionStage) return <AwaitingBackend />
     return <RealOverviewLayout summary="Scores the real feature table and groups consecutive anomalous observations into events." facts={[{ label: 'Threshold', value: results.detectionStage.threshold.toFixed(4) }, { label: 'Anomalous observations', value: String(results.detectionStage.anomalous_observations) }, { label: 'Events', value: String(results.detectionStage.event_count) }]} />
   }
+  if (stageId === 'rag') {
+    if (!results.ragStage) return <AwaitingBackend />
+    return <RealOverviewLayout summary="Focused retrieval queries are searched separately, then merged and deduplicated to preserve coverage across the operational incident." facts={[{ label: 'Retrieval queries', value: String(results.ragStage.retrieval_queries.length) }, { label: 'Embedding model', value: results.ragStage.embedding_model }, { label: 'Retrieved chunks', value: String(results.ragStage.results.length) }]} detail={`One operational incident → ${results.ragStage.retrieval_queries.length} focused retrieval queries → FAISS search → merge/deduplicate → ${results.ragStage.results.length} final technical context chunks`} />
+  }
   const incident = results.incidentStage?.incident
   if (!results.incidentStage) return <AwaitingBackend />
   if (!incident) return <div className="real-empty"><CheckCircle2 size={22} /><h3>No operational incident</h3><p>The backend completed incident building and returned no incident. Downstream incident-dependent stages were skipped.</p></div>
@@ -95,6 +98,7 @@ function RealInputs({ stageId, results }: { stageId: PipelineStageId; results: R
   if (stageId === 'generate') return results.manifest ? <JsonBlock title="Experiment configuration" value={results.manifest.config} source="real backend" /> : <AwaitingBackend />
   if (stageId === 'features') return results.rawTelemetry ? <JsonBlock title="Raw telemetry summary" value={{ total_rows: results.rawTelemetry.total_rows, columns: results.rawTelemetry.columns }} source="real backend" /> : <AwaitingBackend />
   if (stageId === 'detection') return results.features ? <JsonBlock title="Feature input summary" value={{ total_rows: results.features.total_rows, columns: results.features.columns }} source="real backend" /> : <AwaitingBackend />
+  if (stageId === 'rag') return results.ragStage ? <RagInputs rag={results.ragStage} /> : <AwaitingBackend />
   return results.events ? <DataTable title="Detected events" columns={results.events.columns} rows={results.events.rows.slice(0, 12)} /> : <AwaitingBackend />
 }
 
@@ -105,6 +109,7 @@ function RealOutputs({ stageId, results }: { stageId: PipelineStageId; results: 
     if (!results.anomalyScores || !results.events) return <AwaitingBackend />
     return <div className="real-output-stack"><DataTable title="Anomaly score preview" columns={results.anomalyScores.columns} rows={results.anomalyScores.rows.slice(0, 10)} /><DataTable title="Detected events" columns={results.events.columns} rows={results.events.rows.slice(0, 10)} /></div>
   }
+  if (stageId === 'rag') return results.ragStage ? <RagResults rag={results.ragStage} /> : <AwaitingBackend />
   return results.incidentStage ? <JsonBlock title="OperationalIncident" value={results.incidentStage.incident} source="real backend" /> : <AwaitingBackend />
 }
 
@@ -123,6 +128,7 @@ function RealVisuals({ stageId, results }: { stageId: PipelineStageId; results: 
     if (!data.length || threshold === undefined) return <AwaitingBackend />
     return <ChartFrame title="Anomaly score by timestamp" legend={`Backend threshold: ${threshold.toFixed(4)}`}><ResponsiveContainer width="100%" height="100%"><AreaChart data={data}><defs><linearGradient id="realScoreFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#b9db75" stopOpacity={0.35} /><stop offset="1" stopColor="#b9db75" stopOpacity={0} /></linearGradient></defs><CartesianGrid stroke="#2d3940" vertical={false} /><XAxis dataKey="label" tick={{ fill: '#89969c', fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={30} /><YAxis domain={['auto', 'auto']} tick={{ fill: '#89969c', fontSize: 10 }} axisLine={false} tickLine={false} /><Tooltip contentStyle={{ background: '#10191d', border: '1px solid #344148', borderRadius: 8 }} /><ReferenceLine y={threshold} stroke="#e19a65" strokeDasharray="5 4" label={{ value: 'threshold', fill: '#e19a65', fontSize: 10 }} /><Area type="monotone" dataKey="anomalyScore" stroke="#b9db75" fill="url(#realScoreFill)" strokeWidth={2.5} /></AreaChart></ResponsiveContainer></ChartFrame>
   }
+  if (stageId === 'rag') return results.ragStage ? <RetrievalVisual rag={results.ragStage} /> : <AwaitingBackend />
   const incident = results.incidentStage?.incident
   return incident ? <div className="incident-evidence-visual"><h3>Incident evidence</h3>{incident.evidence.map((item) => <div key={`${item.metric}-${item.aggregation}`}><span>{item.metric}</span><strong>{item.value.toLocaleString()} {item.unit ?? ''}</strong><small>{item.aggregation}</small></div>)}</div> : <AwaitingBackend />
 }
@@ -198,7 +204,6 @@ function Overview({ stage, approvalDecision, onApprovalDecision }: { stage: Pipe
 
 function Inputs({ stageId, approvalDecision }: { stageId: PipelineStageId; approvalDecision: 'waiting' | 'approved' | 'rejected' }) {
   if (stageId === 'investigation') return <JsonBlock title="Incident context" value={{ building_id: 'BLDG-001', equipment_id: 'AHU-001', zone_id: 'ZONE-003', incident_window: ['2026-01-15T01:00:00', '2026-01-15T05:00:00'], constraints: ['read-only investigation', 'do not invent evidence'] }} />
-  if (stageId === 'rag') return <div className="query-card"><Search size={17} /><div><span>Retrieval query</span><code>AHU heating valve high command low supply temperature after-hours fan operation actuator response</code></div></div>
   if (stageId === 'assessment') return <TagList title="Evidence bundle" tags={['20 telemetry readings', '2 maintenance records', '3 tenant complaints', '3 RAG chunks']} />
   if (stageId === 'approval') return <JsonBlock title="Proposed work order" value={{ ...operationsView.proposedWorkOrder, status: approvalDecision }} />
   return <JsonBlock title="Approval token" value={{ approved_by: approvalDecision === 'approved' ? 'demo.operator' : null, decision: approvalDecision, action_authorized: approvalDecision === 'approved', proposed_action: 'create_work_order' }} />
@@ -206,7 +211,6 @@ function Inputs({ stageId, approvalDecision }: { stageId: PipelineStageId; appro
 
 function Outputs({ stageId, approvalDecision }: { stageId: PipelineStageId; approvalDecision: 'waiting' | 'approved' | 'rejected' }) {
   if (stageId === 'investigation') return <ToolCalls />
-  if (stageId === 'rag') return <RagResults />
   if (stageId === 'assessment') return <JsonBlock title="InvestigationAssessment" value={{ likely_issue: operationsView.assessment.likelyIssue, confidence: operationsView.assessment.confidence, telemetry_findings: operationsView.assessment.telemetryFindings, maintenance_findings: operationsView.assessment.maintenanceFindings, occupant_impact: operationsView.assessment.occupantImpact, recommended_next_step: operationsView.assessment.recommendedNextStep }} />
   if (stageId === 'approval') return <JsonBlock title="Decision state" value={{ status: approvalDecision, action_authorized: approvalDecision === 'approved', recorded_locally: true }} />
   return <JsonBlock title="WorkOrder" value={{ id: approvalDecision === 'approved' ? 'WO-DEMO-1042' : null, building_id: 'BLDG-001', equipment_id: 'AHU-001', status: approvalDecision === 'approved' ? 'open' : 'not_created', note: 'Frontend mock only' }} />
@@ -214,7 +218,6 @@ function Outputs({ stageId, approvalDecision }: { stageId: PipelineStageId; appr
 
 function Visuals({ stageId }: { stageId: PipelineStageId }) {
   if (stageId === 'investigation') return <EvidenceCoverage />
-  if (stageId === 'rag') return <RetrievalVisual />
   if (stageId === 'assessment') return <ConfidenceVisual />
   return <FlowBoundary stageId={stageId} />
 }
@@ -224,8 +227,9 @@ function EvidenceCoverage() {
   return <ChartFrame title="Evidence collected by source" legend="All requested operational sources were checked."><ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ left: 20 }}><CartesianGrid stroke="#2d3940" horizontal={false} /><XAxis type="number" tick={{ fill: '#89969c', fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="name" tick={{ fill: '#c9d2d5', fontSize: 11 }} axisLine={false} tickLine={false} width={78} /><Tooltip contentStyle={{ background: '#10191d', border: '1px solid #344148', borderRadius: 8 }} /><Bar dataKey="items" fill="#b9db75" radius={[0, 4, 4, 0]} barSize={18} /></BarChart></ResponsiveContainer></ChartFrame>
 }
 
-function RetrievalVisual() {
-  return <ChartFrame title="Retrieval relevance" legend="Cosine similarity score by retrieved document chunk."><ResponsiveContainer width="100%" height="100%"><BarChart data={ragRetrievals}><CartesianGrid stroke="#2d3940" vertical={false} /><XAxis dataKey="section" tick={{ fill: '#89969c', fontSize: 9 }} axisLine={false} tickLine={false} /><YAxis domain={[0, 1]} tick={{ fill: '#89969c', fontSize: 10 }} axisLine={false} tickLine={false} /><Tooltip contentStyle={{ background: '#10191d', border: '1px solid #344148', borderRadius: 8 }} /><Bar dataKey="score" radius={[4, 4, 0, 0]}>{ragRetrievals.map((item, index) => <Cell key={item.id} fill={index === 0 ? '#b9db75' : '#618389'} />)}</Bar></BarChart></ResponsiveContainer></ChartFrame>
+function RetrievalVisual({ rag }: { rag: RagStageResponse }) {
+  const data = rag.results.map((result, index) => ({ label: `#${index + 1} ${result.source}`, score: result.score }))
+  return <ChartFrame title="Retrieval relevance" legend="Backend similarity score by retrieved document chunk."><ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ left: 30 }}><CartesianGrid stroke="#2d3940" horizontal={false} /><XAxis type="number" domain={[0, 1]} tick={{ fill: '#89969c', fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="label" tick={{ fill: '#89969c', fontSize: 9 }} axisLine={false} tickLine={false} width={150} /><Tooltip contentStyle={{ background: '#10191d', border: '1px solid #344148', borderRadius: 8 }} /><Bar dataKey="score" fill="#b9db75" radius={[0, 4, 4, 0]} barSize={22} /></BarChart></ResponsiveContainer></ChartFrame>
 }
 
 function ConfidenceVisual() {
@@ -240,8 +244,13 @@ function ToolCalls() {
   return <div className="tool-call-list">{mcpCalls.map((call, index) => <article className="tool-call" key={call.id}><div className="tool-sequence">{index + 1}</div><div className="tool-call-main"><div className="tool-call-heading"><code>{call.name}</code><span><CheckCircle2 size={13} /> complete</span></div><p>{call.purpose}</p><div className="tool-io"><div><small>Arguments</small><pre>{JSON.stringify(call.arguments, null, 2)}</pre></div><div><small>Result</small><span>{call.resultSummary}</span></div></div></div></article>)}</div>
 }
 
-function RagResults() {
-  return <div className="rag-results">{ragRetrievals.map((item, index) => <article className="rag-card" key={item.id}><div className="rag-rank">0{index + 1}</div><div><div className="rag-heading"><span><FileSearch size={14} />{item.source}</span><strong>{item.score.toFixed(2)}</strong></div><small>{item.section}</small><p>{item.content}</p></div></article>)}</div>
+function RagInputs({ rag }: { rag: RagStageResponse }) {
+  return <div className="real-output-stack"><div className="query-card"><Search size={17} /><div><span>Overall query</span><code>{rag.query}</code></div></div>{rag.retrieval_queries.map((query, index) => <div className="query-card" key={`${index}-${query}`}><Search size={17} /><div><span>Query {index + 1}</span><code>{query}</code></div></div>)}</div>
+}
+
+function RagResults({ rag }: { rag: RagStageResponse }) {
+  if (!rag.results.length) return <div className="real-empty"><FileSearch size={22} /><h3>No chunks retrieved</h3><p>The backend completed RAG without returning technical context.</p></div>
+  return <div className="rag-results">{rag.results.map((item, index) => <article className="rag-card" key={item.chunk_id}><div className="rag-rank">{String(index + 1).padStart(2, '0')}</div><div><div className="rag-heading"><span><FileSearch size={14} />{item.source}</span><strong>{item.score.toFixed(4)}</strong></div><small>{item.chunk_id}</small><p>{item.text}</p></div></article>)}</div>
 }
 
 function JsonBlock({ title, value, source = 'mock payload' }: { title: string; value: unknown; source?: string }) {
