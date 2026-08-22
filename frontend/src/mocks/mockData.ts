@@ -3,7 +3,6 @@ import type {
   McpToolCall,
   OperationsView,
   PipelineStage,
-  RagRetrieval,
   TelemetryPoint,
 } from '../types'
 
@@ -84,12 +83,6 @@ export const mcpCalls: McpToolCall[] = [
   { id: 'call-2', name: 'get_telemetry', purpose: 'Read the incident window using validated sensor IDs', arguments: { sensor_ids: ['AHU01-POWER', 'AHU01-HEAT-VALVE', 'AHU01-SUPPLY-TEMP', 'AHU01-FAN'], start: '2026-01-15T01:00:00Z', end: '2026-01-15T05:00:00Z' }, resultSummary: '20 readings returned across 4 sensors', status: 'complete' },
   { id: 'call-3', name: 'get_work_orders', purpose: 'Check AHU-001 maintenance history', arguments: { equipment_id: 'AHU-001' }, resultSummary: '2 closed work orders; one records intermittent actuator response', status: 'complete' },
   { id: 'call-4', name: 'get_tenant_complaints', purpose: 'Connect the event to occupant impact', arguments: { building_id: 'BLDG-001', zone_id: 'ZONE-003', start: '2026-01-15T06:00:00Z', end: '2026-01-15T12:00:00Z' }, resultSummary: '3 cold-comfort complaints returned', status: 'complete' },
-]
-
-export const ragRetrievals: RagRetrieval[] = [
-  { id: 'rag-1', source: 'AHU Controls Handbook.pdf', section: '4.2 — Heating valve diagnostics', content: 'A high heating command paired with low downstream air temperature can indicate poor actuator travel, linkage slip, or unavailable heating medium. Confirm physical valve position before replacement.', score: 0.93 },
-  { id: 'rag-2', source: 'BMS Sequence of Operations.pdf', section: '2.7 — Unoccupied mode', content: 'Supply fans should remain off during unoccupied mode except for frost protection or an authorized warm-up sequence. Overrides must be time-limited and logged.', score: 0.88 },
-  { id: 'rag-3', source: 'Actuator Service Bulletin 24-08.pdf', section: 'Inspection procedure', content: 'For intermittent response, inspect the mechanical linkage and verify command-to-position calibration across the full operating range.', score: 0.84 },
 ]
 
 export const rawTelemetryRows = telemetry.slice(2, 8).flatMap((point) => [
