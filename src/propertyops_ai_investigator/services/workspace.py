@@ -25,6 +25,7 @@ RAG_RESULTS_FILE = "rag_results.json"
 INVESTIGATION_FILE = "investigation.json"
 MCP_TRACE_FILE = "mcp_trace.jsonl"
 ASSESSMENT_FILE = "assessment.json"
+APPROVAL_FILE = "approval.json"
 
 
 class PipelineStep(str, Enum):

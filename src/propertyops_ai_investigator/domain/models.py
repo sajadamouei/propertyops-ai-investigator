@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -114,6 +114,16 @@ class InvestigationAssessment(BaseModel):
     evidence: list[str]
 
     recommended_next_step: str
+
+class ApprovalRecord(BaseModel):
+    approved: bool
+    rationale: str | None = None
+
+    decided_at: datetime = Field(
+        default_factory=lambda: datetime.now(
+            timezone.utc
+        )
+    )
 
 class OperationalInvestigation(BaseModel):
     summary: str
