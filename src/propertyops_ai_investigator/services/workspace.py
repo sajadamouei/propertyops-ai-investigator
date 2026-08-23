@@ -22,6 +22,9 @@ EVENTS_FILE = "events.csv"
 DETECTION_FILE = "detection.json"
 INCIDENT_FILE = "incident.json"
 RAG_RESULTS_FILE = "rag_results.json"
+INVESTIGATION_FILE = "investigation.json"
+MCP_TRACE_FILE = "mcp_trace.jsonl"
+ASSESSMENT_FILE = "assessment.json"
 
 
 class PipelineStep(str, Enum):

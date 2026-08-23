@@ -114,3 +114,12 @@ class InvestigationAssessment(BaseModel):
     evidence: list[str]
 
     recommended_next_step: str
+
+class OperationalInvestigation(BaseModel):
+    summary: str
+
+    telemetry_findings: list[str]
+    maintenance_findings: list[str]
+    occupant_impact: list[str]
+
+    evidence: list[str]
