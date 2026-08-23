@@ -69,6 +69,34 @@ def create_incident() -> OperationalIncident:
         ],
     )
 
+def test_route_after_approval():
+    approved_state = {
+        "approval": ApprovalRecord(
+            approved=True,
+        )
+    }
+
+    rejected_state = {
+        "approval": ApprovalRecord(
+            approved=False,
+        )
+    }
+
+    assert (
+        investigation_graph
+        .route_after_approval(
+            approved_state
+        )
+        == "work_order"
+    )
+
+    assert (
+        investigation_graph
+        .route_after_approval(
+            rejected_state
+        )
+        == "rejected"
+    )
 
 @pytest.mark.anyio
 async def test_graph_interrupts_for_human_approval_and_resumes_rejection(
@@ -209,6 +237,27 @@ async def test_graph_interrupts_for_human_approval_and_resumes_rejection(
 
             return assessment
 
+    class FakeWorkOrderService:
+        def __init__(
+            self,
+            workspace_dir,
+        ):
+            assert workspace_dir == tmp_path
+
+        async def run(
+            self,
+            incident,
+            assessment,
+        ):
+            call_order.append(
+                "work_order"
+            )
+
+            raise AssertionError(
+                "Rejected workflow must not "
+                "create a work order."
+            )
+
     monkeypatch.setattr(
         investigation_graph,
         "McpInvestigationService",
@@ -225,6 +274,12 @@ async def test_graph_interrupts_for_human_approval_and_resumes_rejection(
         investigation_graph,
         "AssessmentService",
         FakeAssessmentService,
+    )
+
+    monkeypatch.setattr(
+        investigation_graph,
+        "WorkOrderService",
+        FakeWorkOrderService,
     )
 
     checkpointer = InMemorySaver()
@@ -374,7 +429,7 @@ async def test_graph_interrupts_for_human_approval_and_resumes_rejection(
 
     assert (
         final_manifest.status
-        == RunStatus.READY
+        == RunStatus.COMPLETE
     )
 
     assert (

@@ -43,6 +43,17 @@ from propertyops_ai_investigator.services.workspace import (
     save_manifest,
 )
 
+from propertyops_ai_investigator.domain.models import (
+    ApprovalRecord,
+    InvestigationAssessment,
+    OperationalIncident,
+    OperationalInvestigation,
+    WorkOrderCreationResult,
+)
+
+from propertyops_ai_investigator.services.work_order_service import (
+    WorkOrderService,
+)
 
 DEFAULT_CHECKPOINTER = InMemorySaver()
 
@@ -66,6 +77,8 @@ class InvestigationGraphState(
     assessment: InvestigationAssessment
 
     approval: ApprovalRecord
+
+    work_order: WorkOrderCreationResult
 
 
 def load_incident(
@@ -94,6 +107,22 @@ def load_incident(
         data
     )
 
+def route_after_approval(
+    state: InvestigationGraphState,
+) -> str:
+    approval = state.get(
+        "approval"
+    )
+
+    if approval is None:
+        raise RuntimeError(
+            "Approval decision is missing."
+        )
+
+    if approval.approved:
+        return "work_order"
+
+    return "rejected"
 
 def build_investigation_graph(
     workspace_dir: Path = CURRENT_RUN_DIR,
@@ -246,6 +275,41 @@ def build_investigation_graph(
             "approval": approval,
         }
 
+    async def work_order_node(
+        state: InvestigationGraphState,
+    ) -> dict:
+        result = await WorkOrderService(
+            workspace_dir
+        ).run(
+            incident=state["incident"],
+            assessment=state[
+                "assessment"
+            ],
+        )
+
+        return {
+            "work_order": result,
+        }
+
+    def rejected_node(
+        state: InvestigationGraphState,
+    ) -> dict:
+        manifest = load_manifest(
+            workspace_dir
+        )
+
+        manifest.status = (
+            RunStatus.COMPLETE
+        )
+        manifest.current_step = None
+
+        save_manifest(
+            manifest,
+            workspace_dir,
+        )
+
+        return {}
+
     builder = StateGraph(
         InvestigationGraphState
     )
@@ -270,6 +334,16 @@ def build_investigation_graph(
         approval_node,
     )
 
+    builder.add_node(
+        "work_order",
+        work_order_node,
+    )
+
+    builder.add_node(
+        "rejected",
+        rejected_node,
+    )
+
     builder.add_edge(
         START,
         "investigate",
@@ -290,10 +364,25 @@ def build_investigation_graph(
         "approval",
     )
 
-    builder.add_edge(
+    builder.add_conditional_edges(
         "approval",
+        route_after_approval,
+        {
+            "work_order": "work_order",
+            "rejected": "rejected",
+        },
+    )
+
+    builder.add_edge(
+        "work_order",
         END,
     )
+
+    builder.add_edge(
+        "rejected",
+        END,
+    )
+
 
     return builder.compile(
         checkpointer=checkpointer

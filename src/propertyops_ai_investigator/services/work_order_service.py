@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from propertyops_ai_investigator.agents.mcp_tools import (
@@ -117,20 +116,16 @@ class WorkOrderService:
                 },
             )
 
-            result_data = payload.get(
-                "result"
-            )
-
-            if result_data is None:
+            if not payload:
                 raise RuntimeError(
                     "MCP create_work_order "
-                    "returned no result."
+                    "returned no structured content."
                 )
 
             result = (
                 WorkOrderCreationResult
                 .model_validate(
-                    result_data
+                    payload
                 )
             )
 

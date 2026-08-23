@@ -181,27 +181,21 @@ async def test_approved_work_order_calls_mcp_and_persists(
         captured["arguments"] = arguments
 
         return {
-            "result": {
-                "created": True,
-                "work_order": {
-                    "id": "WO-TEST",
-                    "building_id": (
-                        "BLDG-001"
-                    ),
-                    "equipment_id": (
-                        "AHU-001"
-                    ),
-                    "created_at": (
-                        "2026-01-15T12:00:00Z"
-                    ),
-                    "description": (
-                        arguments[
-                            "description"
-                        ]
-                    ),
-                    "status": "open",
-                },
-            }
+            "created": True,
+            "work_order": {
+                "id": "WO-TEST",
+                "building_id": "BLDG-001",
+                "equipment_id": "AHU-001",
+                "created_at": (
+                    "2026-01-15T12:00:00Z"
+                ),
+                "description": (
+                    arguments[
+                        "description"
+                    ]
+                ),
+                "status": "open",
+            },
         }
 
     monkeypatch.setattr(
