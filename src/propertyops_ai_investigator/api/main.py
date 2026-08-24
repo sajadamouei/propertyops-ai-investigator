@@ -1,8 +1,10 @@
 import json
+from contextlib import asynccontextmanager
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from propertyops_ai_investigator.api.schemas import (
     ArtifactTableResponse,
@@ -38,6 +40,7 @@ from propertyops_ai_investigator.services.workspace import (
     reset_current_run,
     APPROVAL_FILE,
     ASSESSMENT_FILE,
+    CHECKPOINT_DB_PATH,
     INVESTIGATION_FILE,
     MCP_TRACE_FILE,
     WORK_ORDER_FILE,
@@ -71,9 +74,27 @@ from propertyops_ai_investigator.services.investigation_service import (
     ToolTraceEntry,
 )
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    CHECKPOINT_DB_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    async with AsyncSqliteSaver.from_conn_string(
+        str(CHECKPOINT_DB_PATH)
+    ) as checkpointer:
+        app.state.workflow_checkpointer = (
+            checkpointer
+        )
+        yield
+
+
 app = FastAPI(
     title="PropertyOps AI Investigator API",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 
@@ -427,10 +448,16 @@ def get_rag_results() -> RagArtifact:
     response_model=WorkflowStartResponse,
 )
 async def start_workflow(
+    request: Request,
 ) -> WorkflowStartResponse:
     try:
         result = await (
-            run_investigation_graph()
+            run_investigation_graph(
+                checkpointer=(
+                    request.app.state
+                    .workflow_checkpointer
+                )
+            )
         )
 
         interrupts = result.get(
@@ -495,6 +522,7 @@ async def start_workflow(
 )
 async def decide_workflow(
     request: WorkflowDecisionRequest,
+    http_request: Request,
 ) -> WorkflowDecisionResponse:
     try:
         manifest = load_manifest()
@@ -524,6 +552,10 @@ async def decide_workflow(
             resume_investigation_graph(
                 approved=request.approved,
                 rationale=request.rationale,
+                checkpointer=(
+                    http_request.app.state
+                    .workflow_checkpointer
+                ),
             )
         )
 

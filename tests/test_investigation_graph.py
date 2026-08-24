@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 import pytest
 
@@ -101,9 +102,14 @@ def test_route_after_approval():
     )
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "checkpoint_backend",
+    ["memory", "sqlite_restart"],
+)
 async def test_graph_pause_and_resume_state_is_json_serializable(
     tmp_path,
     monkeypatch,
+    checkpoint_backend,
 ):
     manifest = RunManifest(
         run_id="test-thread",
@@ -313,15 +319,33 @@ async def test_graph_pause_and_resume_state_is_json_serializable(
         FakeWorkOrderService,
     )
 
-    checkpointer = InMemorySaver()
-
-    paused = await (
-        investigation_graph
-        .run_investigation_graph(
-            tmp_path,
-            checkpointer=checkpointer,
+    if checkpoint_backend == "sqlite_restart":
+        checkpoint_path = (
+            tmp_path / "checkpoints.sqlite"
         )
-    )
+
+        async with (
+            AsyncSqliteSaver.from_conn_string(
+                str(checkpoint_path)
+            )
+        ) as checkpointer:
+            paused = await (
+                investigation_graph
+                .run_investigation_graph(
+                    tmp_path,
+                    checkpointer=checkpointer,
+                )
+            )
+    else:
+        checkpointer = InMemorySaver()
+
+        paused = await (
+            investigation_graph
+            .run_investigation_graph(
+                tmp_path,
+                checkpointer=checkpointer,
+            )
+        )
 
     assert call_order == [
         "investigate",
@@ -423,18 +447,37 @@ async def test_graph_pause_and_resume_state_is_json_serializable(
         / APPROVAL_FILE
     ).exists()
 
-    resumed = await (
-        investigation_graph
-        .resume_investigation_graph(
-            approved=False,
-            rationale=(
-                "Need more evidence before "
-                "dispatching maintenance."
-            ),
-            workspace_dir=tmp_path,
-            checkpointer=checkpointer,
+    if checkpoint_backend == "sqlite_restart":
+        async with (
+            AsyncSqliteSaver.from_conn_string(
+                str(checkpoint_path)
+            )
+        ) as checkpointer:
+            resumed = await (
+                investigation_graph
+                .resume_investigation_graph(
+                    approved=False,
+                    rationale=(
+                        "Need more evidence before "
+                        "dispatching maintenance."
+                    ),
+                    workspace_dir=tmp_path,
+                    checkpointer=checkpointer,
+                )
+            )
+    else:
+        resumed = await (
+            investigation_graph
+            .resume_investigation_graph(
+                approved=False,
+                rationale=(
+                    "Need more evidence before "
+                    "dispatching maintenance."
+                ),
+                workspace_dir=tmp_path,
+                checkpointer=checkpointer,
+            )
         )
-    )
 
     # Resuming the approval interrupt must not
     # repeat the earlier graph nodes.

@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from propertyops_ai_investigator.api.main import (
@@ -43,7 +44,19 @@ from propertyops_ai_investigator.services.workspace import (
 )
 
 
-client = TestClient(app)
+@pytest.fixture
+def client(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        api_main,
+        "CHECKPOINT_DB_PATH",
+        tmp_path / "checkpoints.sqlite",
+    )
+
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def heating_fault_payload() -> dict:
@@ -54,7 +67,7 @@ def heating_fault_payload() -> dict:
     }
 
 
-def test_health():
+def test_health(client):
     response = client.get(
         "/api/health"
     )
@@ -66,7 +79,9 @@ def test_health():
     }
 
 
-def test_heating_fault_pipeline_through_api():
+def test_heating_fault_pipeline_through_api(
+    client,
+):
     response = client.post(
         "/api/runs/reset",
         json=heating_fault_payload(),
@@ -121,7 +136,9 @@ def test_heating_fault_pipeline_through_api():
     )
 
 
-def test_artifact_endpoint_returns_rows():
+def test_artifact_endpoint_returns_rows(
+    client,
+):
     reset_response = client.post(
         "/api/runs/reset",
         json=heating_fault_payload(),
@@ -150,7 +167,9 @@ def test_artifact_endpoint_returns_rows():
     assert len(data["rows"]) == 5
 
 
-def test_pipeline_rejects_out_of_order_step():
+def test_pipeline_rejects_out_of_order_step(
+    client,
+):
     reset_response = client.post(
         "/api/runs/reset",
         json={
@@ -173,7 +192,9 @@ def test_pipeline_rejects_out_of_order_step():
         in response.json()["detail"]
     )
 
-def test_rag_pipeline_through_api():
+def test_rag_pipeline_through_api(
+    client,
+):
     response = client.post(
         "/api/runs/reset",
         json={
@@ -257,6 +278,7 @@ def test_rag_pipeline_through_api():
     assert artifact.status_code == 200
 
 def test_workflow_start_and_reject_through_api(
+    client,
     monkeypatch,
 ):
     reset = client.post(
@@ -322,7 +344,13 @@ def test_workflow_start_and_reject_through_api(
         )
     )
 
-    async def fake_start():
+    async def fake_start(
+        checkpointer,
+    ):
+        assert checkpointer is (
+            app.state.workflow_checkpointer
+        )
+
         manifest = load_manifest()
 
         manifest.status = (
@@ -379,7 +407,12 @@ def test_workflow_start_and_reject_through_api(
     async def fake_resume(
         approved,
         rationale=None,
+        checkpointer=None,
     ):
+        assert checkpointer is (
+            app.state.workflow_checkpointer
+        )
+
         assert approved is False
 
         assert rationale == (
@@ -495,7 +528,9 @@ def test_workflow_start_and_reject_through_api(
         == "complete"
     )
 
-def test_workflow_artifact_endpoints():
+def test_workflow_artifact_endpoints(
+    client,
+):
     reset = client.post(
         "/api/runs/reset",
         json=heating_fault_payload(),
