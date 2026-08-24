@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 from langgraph.checkpoint.memory import (
     InMemorySaver,
@@ -27,7 +28,6 @@ from propertyops_ai_investigator.services.assessment_service import (
 )
 from propertyops_ai_investigator.services.investigation_service import (
     McpInvestigationService,
-    ToolTraceEntry,
 )
 from propertyops_ai_investigator.services.rag_service import (
     RagArtifact,
@@ -42,15 +42,6 @@ from propertyops_ai_investigator.services.workspace import (
     load_manifest,
     save_manifest,
 )
-
-from propertyops_ai_investigator.domain.models import (
-    ApprovalRecord,
-    InvestigationAssessment,
-    OperationalIncident,
-    OperationalInvestigation,
-    WorkOrderCreationResult,
-)
-
 from propertyops_ai_investigator.services.work_order_service import (
     WorkOrderService,
 )
@@ -67,18 +58,18 @@ class InvestigationGraphState(
     TypedDict,
     total=False,
 ):
-    incident: OperationalIncident
+    incident: dict[str, Any]
 
-    investigation: OperationalInvestigation
-    mcp_trace: list[ToolTraceEntry]
+    investigation: dict[str, Any]
+    mcp_trace: list[dict[str, Any]]
 
-    rag: RagArtifact
+    rag: dict[str, Any]
 
-    assessment: InvestigationAssessment
+    assessment: dict[str, Any]
 
-    approval: ApprovalRecord
+    approval: dict[str, Any]
 
-    work_order: WorkOrderCreationResult
+    work_order: dict[str, Any]
 
 
 def load_incident(
@@ -110,14 +101,18 @@ def load_incident(
 def route_after_approval(
     state: InvestigationGraphState,
 ) -> str:
-    approval = state.get(
+    approval_data = state.get(
         "approval"
     )
 
-    if approval is None:
+    if approval_data is None:
         raise RuntimeError(
             "Approval decision is missing."
         )
+
+    approval = ApprovalRecord.model_validate(
+        approval_data
+    )
 
     if approval.approved:
         return "work_order"
@@ -134,19 +129,27 @@ def build_investigation_graph(
     async def investigate_node(
         state: InvestigationGraphState,
     ) -> dict:
+        incident = OperationalIncident.model_validate(
+            state["incident"]
+        )
+
         artifact = await (
             McpInvestigationService(
                 workspace_dir
             ).run(
-                incident=state["incident"]
+                incident=incident
             )
         )
 
         return {
             "investigation": (
                 artifact.investigation
+                .model_dump(mode="json")
             ),
-            "mcp_trace": artifact.trace,
+            "mcp_trace": [
+                entry.model_dump(mode="json")
+                for entry in artifact.trace
+            ],
         }
 
     def rag_node(
@@ -157,29 +160,52 @@ def build_investigation_graph(
         ).run()
 
         return {
-            "rag": artifact,
+            "rag": artifact.model_dump(
+                mode="json"
+            ),
         }
 
     async def assessment_node(
         state: InvestigationGraphState,
     ) -> dict:
+        incident = OperationalIncident.model_validate(
+            state["incident"]
+        )
+        investigation = (
+            OperationalInvestigation.model_validate(
+                state["investigation"]
+            )
+        )
+        rag = RagArtifact.model_validate(
+            state["rag"]
+        )
+
         assessment = await AssessmentService(
             workspace_dir
         ).run(
-            incident=state["incident"],
-            investigation=state[
-                "investigation"
-            ],
-            rag=state["rag"],
+            incident=incident,
+            investigation=investigation,
+            rag=rag,
         )
 
         return {
-            "assessment": assessment,
+            "assessment": assessment.model_dump(
+                mode="json"
+            ),
         }
 
     def approval_node(
         state: InvestigationGraphState,
     ) -> dict:
+        incident = OperationalIncident.model_validate(
+            state["incident"]
+        )
+        assessment = (
+            InvestigationAssessment.model_validate(
+                state["assessment"]
+            )
+        )
+
         manifest = load_manifest(
             workspace_dir
         )
@@ -202,25 +228,19 @@ def build_investigation_graph(
                     "work order?"
                 ),
                 "incident_id": (
-                    state["incident"].id
+                    incident.id
                 ),
                 "equipment_id": (
-                    state["incident"].equipment_id
+                    incident.equipment_id
                 ),
                 "likely_issue": (
-                    state[
-                        "assessment"
-                    ].likely_issue
+                    assessment.likely_issue
                 ),
                 "confidence": (
-                    state[
-                        "assessment"
-                    ].confidence
+                    assessment.confidence
                 ),
                 "recommended_next_step": (
-                    state[
-                        "assessment"
-                    ].recommended_next_step
+                    assessment.recommended_next_step
                 ),
             }
         )
@@ -272,23 +292,34 @@ def build_investigation_graph(
         )
 
         return {
-            "approval": approval,
+            "approval": approval.model_dump(
+                mode="json"
+            ),
         }
 
     async def work_order_node(
         state: InvestigationGraphState,
     ) -> dict:
+        incident = OperationalIncident.model_validate(
+            state["incident"]
+        )
+        assessment = (
+            InvestigationAssessment.model_validate(
+                state["assessment"]
+            )
+        )
+
         result = await WorkOrderService(
             workspace_dir
         ).run(
-            incident=state["incident"],
-            assessment=state[
-                "assessment"
-            ],
+            incident=incident,
+            assessment=assessment,
         )
 
         return {
-            "work_order": result,
+            "work_order": result.model_dump(
+                mode="json"
+            ),
         }
 
     def rejected_node(
@@ -418,7 +449,9 @@ async def run_investigation_graph(
 
     result = await graph.ainvoke(
         {
-            "incident": incident,
+            "incident": incident.model_dump(
+                mode="json"
+            ),
         },
         config=graph_config(
             workspace_dir

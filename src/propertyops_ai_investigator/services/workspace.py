@@ -15,6 +15,10 @@ CURRENT_RUN_DIR = Path(
     "data/runtime/current_run"
 )
 
+CHECKPOINT_DB_PATH = Path(
+    "data/runtime/langgraph_checkpoints.sqlite"
+)
+
 RAW_TELEMETRY_FILE = "raw_telemetry.csv"
 FEATURES_FILE = "features.csv"
 ANOMALY_SCORES_FILE = "anomaly_scores.csv"

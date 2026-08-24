@@ -1,6 +1,8 @@
 import asyncio
+import csv
 
 from mcp import Client
+import pytest
 
 import propertyops_ai_investigator.mcp_servers.property_operations as operations
 
@@ -37,6 +39,13 @@ def test_property_operations_mcp_tools():
                     "create_work_order"
                 ].annotations.read_only_hint
                 is False
+            )
+
+            assert (
+                tools_by_name[
+                    "create_work_order"
+                ].annotations.idempotent_hint
+                is True
             )
 
             # 3. Check sensor discovery.
@@ -95,34 +104,136 @@ def test_create_work_order_through_mcp(
 
     async def run_test():
         async with Client(operations.mcp) as client:
-            result = await client.call_tool(
+            arguments = {
+                "building_id": "BLDG-001",
+                "equipment_id": "AHU-001",
+                "description": (
+                    "Inspect heating valve actuator."
+                ),
+                "idempotency_key": (
+                    "test-run:INC-TEST:work_order"
+                ),
+            }
+
+            first_result = await client.call_tool(
                 "create_work_order",
-                {
-                    "building_id": "BLDG-001",
-                    "equipment_id": "AHU-001",
-                    "description": (
-                        "Inspect heating valve actuator."
-                    ),
-                },
+                arguments,
             )
 
-            assert result.structured_content is not None
-
-            content = result.structured_content
-
-            assert content["created"] is True
+            second_result = await client.call_tool(
+                "create_work_order",
+                arguments,
+            )
 
             assert (
-                content["work_order"]["status"]
+                first_result.structured_content
+                is not None
+            )
+            assert (
+                second_result.structured_content
+                is not None
+            )
+
+            first_content = (
+                first_result.structured_content
+            )
+            second_content = (
+                second_result.structured_content
+            )
+
+            assert first_content["created"] is True
+            assert second_content["created"] is True
+
+            assert (
+                first_content["work_order"]["status"]
                 == "open"
+            )
+
+            assert (
+                first_content["work_order"]["id"]
+                == second_content["work_order"]["id"]
             )
 
     asyncio.run(run_test())
 
     assert runtime_file.exists()
 
-    contents = runtime_file.read_text(
-        encoding="utf-8"
+    with runtime_file.open(
+        "r",
+        newline="",
+        encoding="utf-8",
+    ) as file:
+        rows = list(csv.DictReader(file))
+
+    assert len(rows) == 1
+
+    assert (
+        rows[0]["description"]
+        == "Inspect heating valve actuator."
     )
 
-    assert "Inspect heating valve actuator." in contents
+
+def test_create_work_order_rejects_reused_key_for_new_payload(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        operations,
+        "RUNTIME_WORK_ORDERS_PATH",
+        tmp_path / "created_work_orders.csv",
+    )
+
+    arguments = {
+        "building_id": "BLDG-001",
+        "equipment_id": "AHU-001",
+        "description": (
+            "Inspect heating valve actuator."
+        ),
+        "idempotency_key": (
+            "test-run:INC-TEST:work_order"
+        ),
+    }
+
+    operations.create_work_order(
+        **arguments
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Idempotency key was reused for a "
+            "different work-order request"
+        ),
+    ):
+        operations.create_work_order(
+            **{
+                **arguments,
+                "description": (
+                    "Replace heating valve actuator."
+                ),
+            }
+        )
+
+
+def test_create_work_order_rejects_empty_idempotency_key(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        operations,
+        "RUNTIME_WORK_ORDERS_PATH",
+        tmp_path / "created_work_orders.csv",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="idempotency_key must not be empty",
+    ):
+        operations.create_work_order(
+            building_id="BLDG-001",
+            equipment_id="AHU-001",
+            description=(
+                "Inspect heating valve actuator."
+            ),
+            idempotency_key="   ",
+        )

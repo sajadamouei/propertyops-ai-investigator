@@ -1,7 +1,8 @@
 from datetime import datetime
 from pathlib import Path
 import csv
-from uuid import uuid4
+from hashlib import sha256
+from threading import Lock
 
 import pandas as pd
 from mcp.server import MCPServer
@@ -25,6 +26,8 @@ SENSORS_PATH = Path("data/source/sensors.csv")
 RUNTIME_WORK_ORDERS_PATH = Path(
     "data/runtime/created_work_orders.csv"
 )
+
+CREATE_WORK_ORDER_LOCK = Lock()
 
 
 def normalize_timestamp(
@@ -207,7 +210,7 @@ def get_telemetry(
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=False,
-        idempotentHint=False,
+        idempotentHint=True,
         openWorldHint=False,
     )
 )
@@ -215,6 +218,7 @@ def create_work_order(
     building_id: str,
     equipment_id: str,
     description: str,
+    idempotency_key: str,
 ) -> WorkOrderCreationResult:
     """Create a maintenance work order.
 
@@ -222,57 +226,116 @@ def create_work_order(
     after explicit user approval.
     """
 
-    work_order = WorkOrder(
-        id=f"WO-{uuid4().hex[:8].upper()}",
-        building_id=building_id,
-        equipment_id=equipment_id,
-        created_at=datetime.now(),
-        description=description,
-        status=WorkOrderStatus.OPEN,
-    )
-
-    RUNTIME_WORK_ORDERS_PATH.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    file_exists = RUNTIME_WORK_ORDERS_PATH.exists()
-
-    with RUNTIME_WORK_ORDERS_PATH.open(
-        "a",
-        newline="",
-        encoding="utf-8",
-    ) as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "id",
-                "building_id",
-                "equipment_id",
-                "created_at",
-                "description",
-                "status",
-            ],
+    if not idempotency_key.strip():
+        raise ValueError(
+            "idempotency_key must not be empty."
         )
 
-        if not file_exists:
-            writer.writeheader()
+    digest = sha256(
+        idempotency_key.encode("utf-8")
+    ).hexdigest().upper()
+    work_order_id = f"WO-{digest[:16]}"
 
-        writer.writerow(
-            {
-                "id": work_order.id,
-                "building_id": work_order.building_id,
-                "equipment_id": work_order.equipment_id,
-                "created_at": work_order.created_at.isoformat(),
-                "description": work_order.description,
-                "status": work_order.status.value,
-            }
+    with CREATE_WORK_ORDER_LOCK:
+        RUNTIME_WORK_ORDERS_PATH.parent.mkdir(
+            parents=True,
+            exist_ok=True,
         )
 
-    return WorkOrderCreationResult(
-        created=True,
-        work_order=work_order,
-    )
+        if RUNTIME_WORK_ORDERS_PATH.exists():
+            with RUNTIME_WORK_ORDERS_PATH.open(
+                "r",
+                newline="",
+                encoding="utf-8",
+            ) as file:
+                for row in csv.DictReader(file):
+                    if row["id"] != work_order_id:
+                        continue
+
+                    if (
+                        row["building_id"]
+                        != building_id
+                        or row["equipment_id"]
+                        != equipment_id
+                        or row["description"]
+                        != description
+                    ):
+                        raise ValueError(
+                            "Idempotency key was reused "
+                            "for a different work-order "
+                            "request."
+                        )
+
+                    existing_work_order = (
+                        WorkOrder.model_validate(row)
+                    )
+
+                    return WorkOrderCreationResult(
+                        created=True,
+                        work_order=(
+                            existing_work_order
+                        ),
+                    )
+
+        work_order = WorkOrder(
+            id=work_order_id,
+            building_id=building_id,
+            equipment_id=equipment_id,
+            created_at=datetime.now(),
+            description=description,
+            status=WorkOrderStatus.OPEN,
+        )
+
+        file_exists = (
+            RUNTIME_WORK_ORDERS_PATH.exists()
+        )
+
+        with RUNTIME_WORK_ORDERS_PATH.open(
+            "a",
+            newline="",
+            encoding="utf-8",
+        ) as file:
+            writer = csv.DictWriter(
+                file,
+                fieldnames=[
+                    "id",
+                    "building_id",
+                    "equipment_id",
+                    "created_at",
+                    "description",
+                    "status",
+                ],
+            )
+
+            if not file_exists:
+                writer.writeheader()
+
+            writer.writerow(
+                {
+                    "id": work_order.id,
+                    "building_id": (
+                        work_order.building_id
+                    ),
+                    "equipment_id": (
+                        work_order.equipment_id
+                    ),
+                    "created_at": (
+                        work_order.created_at
+                        .isoformat()
+                    ),
+                    "description": (
+                        work_order.description
+                    ),
+                    "status": (
+                        work_order.status.value
+                    ),
+                }
+            )
+
+        return WorkOrderCreationResult(
+            created=True,
+            work_order=work_order,
+        )
 
 
 if __name__ == "__main__":
