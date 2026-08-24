@@ -1,27 +1,30 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-
-from propertyops_ai_investigator.data.experiment import (
-    ExperimentConfig,
-)
-from propertyops_ai_investigator.domain.models import (
-    OperationalIncident,
-)
-from propertyops_ai_investigator.services.workspace import (
-    PipelineStep,
-    RunManifest,
-)
 
 from propertyops_ai_investigator.data.experiment import (
     FaultSpec,
     ScenarioType,
 )
-
-from pydantic import BaseModel, Field
-
+from propertyops_ai_investigator.domain.models import (
+    ApprovalRecord,
+    InvestigationAssessment,
+    OperationalIncident,
+    OperationalInvestigation,
+    WorkOrderCreationResult,
+)
 from propertyops_ai_investigator.rag.retriever import (
     RetrievalResult,
+)
+from propertyops_ai_investigator.services.investigation_service import (
+    ToolTraceEntry,
+)
+from propertyops_ai_investigator.services.rag_service import (
+    RagArtifact,
+)
+from propertyops_ai_investigator.services.workspace import (
+    PipelineStep,
+    RunManifest,
 )
 
 
@@ -70,6 +73,7 @@ class ArtifactTableResponse(BaseModel):
     rows: list[dict[str, Any]]
     total_rows: int
 
+
 class RagStageRequest(BaseModel):
     query: str | None = None
 
@@ -86,3 +90,51 @@ class RagStageResponse(BaseModel):
     retrieval_queries: list[str]
     embedding_model: str
     results: list[RetrievalResult]
+
+
+class WorkflowApprovalPrompt(BaseModel):
+    type: str
+    question: str
+
+    incident_id: str
+    equipment_id: str
+
+    likely_issue: str
+    confidence: float
+
+    recommended_next_step: str
+
+
+class WorkflowStartResponse(BaseModel):
+    status: Literal[
+        "waiting_for_approval"
+    ]
+
+    manifest: RunManifest
+
+    investigation: OperationalInvestigation
+    mcp_trace: list[ToolTraceEntry]
+
+    rag: RagArtifact
+
+    assessment: InvestigationAssessment
+
+    approval_request: WorkflowApprovalPrompt
+
+
+class WorkflowDecisionRequest(BaseModel):
+    approved: bool
+    rationale: str | None = None
+
+
+class WorkflowDecisionResponse(BaseModel):
+    status: Literal["complete"]
+
+    manifest: RunManifest
+
+    approval: ApprovalRecord
+
+    work_order: (
+        WorkOrderCreationResult
+        | None
+    ) = None

@@ -4,6 +4,28 @@ from propertyops_ai_investigator.api.main import (
     app,
 )
 
+from types import SimpleNamespace
+
+import propertyops_ai_investigator.api.main as api_main
+
+from propertyops_ai_investigator.domain.models import (
+    ApprovalRecord,
+    InvestigationAssessment,
+    OperationalInvestigation,
+)
+from propertyops_ai_investigator.services.investigation_service import (
+    ToolTraceEntry,
+)
+from propertyops_ai_investigator.services.rag_service import (
+    RagArtifact,
+)
+from propertyops_ai_investigator.services.workspace import (
+    PipelineStep,
+    RunStatus,
+    load_manifest,
+    save_manifest,
+)
+
 
 client = TestClient(app)
 
@@ -217,3 +239,242 @@ def test_rag_pipeline_through_api():
     )
 
     assert artifact.status_code == 200
+
+def test_workflow_start_and_reject_through_api(
+    monkeypatch,
+):
+    reset = client.post(
+        "/api/runs/reset",
+        json=heating_fault_payload(),
+    )
+
+    assert reset.status_code == 200
+
+    investigation = (
+        OperationalInvestigation(
+            summary=(
+                "Operational evidence "
+                "gathered."
+            ),
+            telemetry_findings=[
+                "High valve command."
+            ],
+            maintenance_findings=[
+                "Previous calibration."
+            ],
+            occupant_impact=[
+                "Cold complaints."
+            ],
+            evidence=[
+                "MCP evidence."
+            ],
+        )
+    )
+
+    rag = RagArtifact(
+        query="test query",
+        retrieval_queries=[
+            "test query"
+        ],
+        k=1,
+        embedding_model="test-model",
+        results=[],
+    )
+
+    assessment = (
+        InvestigationAssessment(
+            likely_issue=(
+                "Possible heating valve "
+                "mechanical issue."
+            ),
+            confidence=0.8,
+            telemetry_findings=[
+                "High valve command."
+            ],
+            maintenance_findings=[
+                "Previous calibration."
+            ],
+            occupant_impact=[
+                "Cold complaints."
+            ],
+            evidence=[
+                "Combined evidence."
+            ],
+            recommended_next_step=(
+                "Inspect actuator."
+            ),
+        )
+    )
+
+    async def fake_start():
+        manifest = load_manifest()
+
+        manifest.status = (
+            RunStatus.WAITING
+        )
+        manifest.current_step = (
+            PipelineStep.HUMAN_APPROVAL
+        )
+
+        save_manifest(
+            manifest
+        )
+
+        return {
+            "investigation": (
+                investigation
+            ),
+            "mcp_trace": [],
+            "rag": rag,
+            "assessment": assessment,
+            "__interrupt__": [
+                SimpleNamespace(
+                    value={
+                        "type": (
+                            "work_order_approval"
+                        ),
+                        "question": (
+                            "Approve creating a "
+                            "maintenance work order?"
+                        ),
+                        "incident_id": (
+                            "INC-TEST"
+                        ),
+                        "equipment_id": (
+                            "AHU-001"
+                        ),
+                        "likely_issue": (
+                            assessment
+                            .likely_issue
+                        ),
+                        "confidence": (
+                            assessment
+                            .confidence
+                        ),
+                        "recommended_next_step": (
+                            assessment
+                            .recommended_next_step
+                        ),
+                    }
+                )
+            ],
+        }
+
+    async def fake_resume(
+        approved,
+        rationale=None,
+    ):
+        assert approved is False
+
+        assert rationale == (
+            "Need more evidence."
+        )
+
+        approval = ApprovalRecord(
+            approved=False,
+            rationale=rationale,
+        )
+
+        manifest = load_manifest()
+
+        manifest.status = (
+            RunStatus.COMPLETE
+        )
+        manifest.current_step = None
+
+        if (
+            PipelineStep.HUMAN_APPROVAL
+            not in manifest.completed_steps
+        ):
+            manifest.completed_steps.append(
+                PipelineStep.HUMAN_APPROVAL
+            )
+
+        save_manifest(
+            manifest
+        )
+
+        return {
+            "approval": approval,
+        }
+
+    monkeypatch.setattr(
+        api_main,
+        "run_investigation_graph",
+        fake_start,
+    )
+
+    monkeypatch.setattr(
+        api_main,
+        "resume_investigation_graph",
+        fake_resume,
+    )
+
+    start = client.post(
+        "/api/workflow/start"
+    )
+
+    assert start.status_code == 200
+
+    start_data = start.json()
+
+    assert (
+        start_data["status"]
+        == "waiting_for_approval"
+    )
+
+    assert (
+        start_data[
+            "approval_request"
+        ]["equipment_id"]
+        == "AHU-001"
+    )
+
+    assert (
+        start_data["manifest"][
+            "status"
+        ]
+        == "waiting"
+    )
+
+    decision = client.post(
+        "/api/workflow/decision",
+        json={
+            "approved": False,
+            "rationale": (
+                "Need more evidence."
+            ),
+        },
+    )
+
+    assert decision.status_code == 200
+
+    decision_data = (
+        decision.json()
+    )
+
+    assert (
+        decision_data["status"]
+        == "complete"
+    )
+
+    assert (
+        decision_data[
+            "approval"
+        ]["approved"]
+        is False
+    )
+
+    assert (
+        decision_data[
+            "work_order"
+        ]
+        is None
+    )
+
+    assert (
+        decision_data[
+            "manifest"
+        ]["status"]
+        == "complete"
+    )

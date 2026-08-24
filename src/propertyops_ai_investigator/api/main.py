@@ -10,12 +10,20 @@ from propertyops_ai_investigator.api.schemas import (
     FeatureStageResponse,
     GenerateStageResponse,
     IncidentStageResponse,
+    RagStageRequest,
+    RagStageResponse,
     ResetRunRequest,
     RunResponse,
+    WorkflowApprovalPrompt,
+    WorkflowDecisionRequest,
+    WorkflowDecisionResponse,
+    WorkflowStartResponse,
 )
+
 from propertyops_ai_investigator.services.pipeline import (
     PipelineService,
 )
+
 from propertyops_ai_investigator.services.workspace import (
     ANOMALY_SCORES_FILE,
     CURRENT_RUN_DIR,
@@ -25,6 +33,7 @@ from propertyops_ai_investigator.services.workspace import (
     RAW_TELEMETRY_FILE,
     RAG_RESULTS_FILE,
     PipelineStep,
+    RunStatus,
     load_manifest,
     reset_current_run,
 )
@@ -35,17 +44,16 @@ from propertyops_ai_investigator.data.experiment import (
     create_scenario_config,
 )
 
-from propertyops_ai_investigator.api.schemas import (
-    # keep existing imports
-    RagStageRequest,
-    RagStageResponse,
-)
 
 from propertyops_ai_investigator.services.rag_service import (
     RagArtifact,
     RagService,
 )
 
+from propertyops_ai_investigator.workflows.investigation_graph import (
+    resume_investigation_graph,
+    run_investigation_graph,
+)
 
 app = FastAPI(
     title="PropertyOps AI Investigator API",
@@ -397,3 +405,131 @@ def get_rag_results() -> RagArtifact:
             encoding="utf-8"
         )
     )
+
+@app.post(
+    "/api/workflow/start",
+    response_model=WorkflowStartResponse,
+)
+async def start_workflow(
+) -> WorkflowStartResponse:
+    try:
+        result = await (
+            run_investigation_graph()
+        )
+
+        interrupts = result.get(
+            "__interrupt__",
+            [],
+        )
+
+        if len(interrupts) != 1:
+            raise RuntimeError(
+                "Workflow did not pause at "
+                "the expected approval step."
+            )
+
+        approval_request = (
+            WorkflowApprovalPrompt
+            .model_validate(
+                interrupts[0].value
+            )
+        )
+
+        manifest = load_manifest()
+
+        return WorkflowStartResponse(
+            status=(
+                "waiting_for_approval"
+            ),
+            manifest=manifest,
+            investigation=result[
+                "investigation"
+            ],
+            mcp_trace=result[
+                "mcp_trace"
+            ],
+            rag=result["rag"],
+            assessment=result[
+                "assessment"
+            ],
+            approval_request=(
+                approval_request
+            ),
+        )
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="No current run exists.",
+        ) from exc
+
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+    ) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+@app.post(
+    "/api/workflow/decision",
+    response_model=WorkflowDecisionResponse,
+)
+async def decide_workflow(
+    request: WorkflowDecisionRequest,
+) -> WorkflowDecisionResponse:
+    try:
+        manifest = load_manifest()
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="No current run exists.",
+        ) from exc
+
+    if (
+        manifest.status
+        != RunStatus.WAITING
+        or manifest.current_step
+        != PipelineStep.HUMAN_APPROVAL
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Workflow is not currently "
+                "waiting for human approval."
+            ),
+        )
+
+    try:
+        result = await (
+            resume_investigation_graph(
+                approved=request.approved,
+                rationale=request.rationale,
+            )
+        )
+
+        final_manifest = load_manifest()
+
+        return WorkflowDecisionResponse(
+            status="complete",
+            manifest=final_manifest,
+            approval=result[
+                "approval"
+            ],
+            work_order=result.get(
+                "work_order"
+            ),
+        )
+
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+    ) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
