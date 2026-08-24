@@ -314,6 +314,13 @@ async def test_approved_work_order_calls_mcp_and_persists(
     )
 
     assert (
+        captured["arguments"][
+            "idempotency_key"
+        ]
+        == "test-run:INC-TEST:work_order"
+    )
+
+    assert (
         tmp_path
         / WORK_ORDER_FILE
     ).exists()

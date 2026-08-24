@@ -124,6 +124,10 @@ class WorkOrderService:
                     assessment,
                 )
             )
+            idempotency_key = (
+                f"{manifest.run_id}:"
+                f"{incident.id}:work_order"
+            )
 
             payload = await call_mcp_tool(
                 "create_work_order",
@@ -135,6 +139,9 @@ class WorkOrderService:
                         incident.equipment_id
                     ),
                     "description": description,
+                    "idempotency_key": (
+                        idempotency_key
+                    ),
                 },
             )
 
