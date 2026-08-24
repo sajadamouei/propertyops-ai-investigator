@@ -113,6 +113,82 @@ export interface RagStageResponse {
   results: RagRetrievalResult[]
 }
 
+export interface OperationalInvestigationResponse {
+  summary: string
+  telemetry_findings: string[]
+  maintenance_findings: string[]
+  occupant_impact: string[]
+  evidence: string[]
+}
+
+export interface McpTraceEntryResponse {
+  event: string
+  tool_name: string
+  tool_call_id: string
+  arguments: Record<string, unknown> | null
+  content: string | null
+}
+
+export interface InvestigationAssessmentResponse {
+  likely_issue: string
+  confidence: number
+  telemetry_findings: string[]
+  maintenance_findings: string[]
+  occupant_impact: string[]
+  evidence: string[]
+  recommended_next_step: string
+}
+
+export interface WorkflowApprovalPrompt {
+  type: string
+  question: string
+  incident_id: string
+  equipment_id: string
+  likely_issue: string
+  confidence: number
+  recommended_next_step: string
+}
+
+export interface ApprovalRecordResponse {
+  approved: boolean
+  rationale: string | null
+  decided_at: string
+}
+
+export interface WorkOrderCreationResultResponse {
+  created: boolean
+  work_order: {
+    id: string
+    building_id: string
+    equipment_id: string
+    created_at: string
+    description: string
+    status: 'open' | 'in_progress' | 'closed'
+  }
+}
+
+export interface WorkflowStartResponse {
+  status: 'waiting_for_approval'
+  manifest: RunManifest
+  investigation: OperationalInvestigationResponse
+  mcp_trace: McpTraceEntryResponse[]
+  rag: Omit<RagStageResponse, 'step'> & { k: number }
+  assessment: InvestigationAssessmentResponse
+  approval_request: WorkflowApprovalPrompt
+}
+
+export interface WorkflowDecisionRequest {
+  approved: boolean
+  rationale: string | null
+}
+
+export interface WorkflowDecisionResponse {
+  status: 'complete'
+  manifest: RunManifest
+  approval: ApprovalRecordResponse
+  work_order: WorkOrderCreationResultResponse | null
+}
+
 export interface ArtifactTableResponse {
   columns: string[]
   rows: Array<Record<string, unknown>>
@@ -137,6 +213,12 @@ export interface RealPipelineResults {
   detectionSummary: DetectionSummaryResponse | null
   incidentStage: IncidentStageResponse | null
   ragStage: RagStageResponse | null
+  investigation: OperationalInvestigationResponse | null
+  mcpTrace: McpTraceEntryResponse[]
+  assessment: InvestigationAssessmentResponse | null
+  approvalRequest: WorkflowApprovalPrompt | null
+  approval: ApprovalRecordResponse | null
+  workOrder: WorkOrderCreationResultResponse | null
 }
 
 const post = <T>(path: string, body?: unknown) => apiRequest<T>(path, {
@@ -154,6 +236,8 @@ export const propertyOpsApi = {
   detect: () => post<DetectionStageResponse>('/api/pipeline/detect'),
   incident: () => post<IncidentStageResponse>('/api/pipeline/incident'),
   rag: (request: RagStageRequest) => post<RagStageResponse>('/api/pipeline/rag', request),
+  workflowStart: () => post<WorkflowStartResponse>('/api/workflow/start'),
+  workflowDecision: (request: WorkflowDecisionRequest) => post<WorkflowDecisionResponse>('/api/workflow/decision', request),
   rawTelemetry: (limit?: number) => artifact('/api/artifacts/raw-telemetry', limit),
   featureArtifact: (limit?: number) => artifact('/api/artifacts/features', limit),
   anomalyScores: (limit?: number) => artifact('/api/artifacts/anomaly-scores', limit),

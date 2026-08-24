@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { propertyOpsApi, type RealPipelineResults, type ResetRunRequest } from '../api/propertyOpsApi'
 import { operationsView as knownIncidentView, stageDefinitions } from '../mocks/mockData'
 import type {
@@ -12,9 +12,7 @@ import type {
   WorkOrderDecision,
 } from '../types'
 
-const WORK_ORDER_ID = 'WO-DEMO-1042'
 const FOUNDATION_REAL_STAGE_IDS: PipelineStageId[] = ['generate', 'features', 'detection', 'incident']
-const REAL_STAGE_IDS: PipelineStageId[] = [...FOUNDATION_REAL_STAGE_IDS, 'rag']
 const NO_INCIDENT_STAGE_IDS: PipelineStageId[] = ['incident', 'investigation', 'rag', 'assessment', 'approval', 'work-order']
 
 export const defaultExperimentConfig: ExperimentConfig = {
@@ -47,6 +45,12 @@ function emptyBackendResults(): RealPipelineResults {
     detectionSummary: null,
     incidentStage: null,
     ragStage: null,
+    investigation: null,
+    mcpTrace: [],
+    assessment: null,
+    approvalRequest: null,
+    approval: null,
+    workOrder: null,
   }
 }
 
@@ -153,7 +157,7 @@ interface DemoRunContextValue {
   runFullPipeline: () => Promise<void>
   selectStage: (stageId: PipelineStageId) => void
   setInspectorTab: (tab: InspectorTab) => void
-  decideWorkOrder: (decision: Exclude<WorkOrderDecision, 'waiting'>) => void
+  decideWorkOrder: (decision: Exclude<WorkOrderDecision, 'waiting'>) => Promise<void>
 }
 
 const DemoRunContext = createContext<DemoRunContextValue | null>(null)
@@ -162,21 +166,12 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
   const [runState, setRunState] = useState<LabRunState>(() => initialState())
   const [backendResults, setBackendResults] = useState<RealPipelineResults>(() => emptyBackendResults())
   const backendConfigKey = useRef<string | null>(null)
-  const timers = useRef<number[]>([])
-
-  const clearTimers = useCallback(() => {
-    timers.current.forEach(window.clearTimeout)
-    timers.current = []
-  }, [])
-
-  useEffect(() => clearTimers, [clearTimers])
-
+  const approvalRequestInFlight = useRef(false)
   const replaceRun = useCallback((config: ExperimentConfig) => {
-    clearTimers()
     backendConfigKey.current = null
     setBackendResults(emptyBackendResults())
     setRunState(initialState(config))
-  }, [clearTimers])
+  }, [])
 
   const setExperimentConfig = useCallback((config: ExperimentConfig) => {
     replaceRun(config)
@@ -193,7 +188,6 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
   const resetRun = useCallback(async () => {
     if (runState.isRunning) return
     const config = runState.config
-    clearTimers()
     backendConfigKey.current = null
     setBackendResults(emptyBackendResults())
     setRunState({ ...initialState(config), isRunning: true })
@@ -207,7 +201,7 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
         stageErrors: { generate: errorMessage(error) },
       })
     }
-  }, [clearTimers, initializeBackend, runState.config, runState.isRunning])
+  }, [initializeBackend, runState.config, runState.isRunning])
 
   const selectStage = useCallback((selectedStageId: PipelineStageId) => {
     setRunState((current) => ({ ...current, selectedStageId, activeTab: 'overview' }))
@@ -307,30 +301,35 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
       return false
     }
 
-    if (stageId === 'rag') {
-      const ragStage = await propertyOpsApi.rag({ k: 3 })
-      setBackendResults((current) => ({ ...current, ragStage }))
-      completeStage(stageId)
-      return true
-    }
-
     return true
   }, [completeStage, initializeBackend])
 
-  const executeMockStage = useCallback((stageId: PipelineStageId) => new Promise<void>((resolve) => {
-    const timer = window.setTimeout(() => {
-      if (stageId === 'approval') {
-        setRunState((current) => ({
-          ...current,
-          stages: current.stages.map((stage) => stage.id === stageId ? { ...stage, status: 'waiting' } : stage),
-        }))
-      } else {
-        completeStage(stageId)
-      }
-      resolve()
-    }, 180)
-    timers.current.push(timer)
-  }), [completeStage])
+  const executeWorkflowStart = useCallback(async () => {
+    const response = await propertyOpsApi.workflowStart()
+    setBackendResults((current) => ({
+      ...current,
+      manifest: response.manifest,
+      investigation: response.investigation,
+      mcpTrace: response.mcp_trace,
+      ragStage: { ...response.rag, step: 'rag' },
+      assessment: response.assessment,
+      approvalRequest: response.approval_request,
+      approval: null,
+      workOrder: null,
+    }))
+    setRunState((current) => ({
+      ...current,
+      selectedStageId: 'approval',
+      activeTab: 'overview',
+      workOrderDecision: 'waiting',
+      stages: current.stages.map((stage) => {
+        if (['investigation', 'rag', 'assessment'].includes(stage.id)) return { ...stage, status: 'complete' }
+        if (stage.id === 'approval') return { ...stage, status: 'waiting' }
+        if (stage.id === 'work-order') return { ...stage, status: 'not_started' }
+        return stage
+      }),
+    }))
+  }, [])
 
   const runNextStep = useCallback(async () => {
     if (runState.isRunning) return
@@ -339,21 +338,20 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
 
     startStage(nextStage.id)
     try {
-      if (REAL_STAGE_IDS.includes(nextStage.id)) {
+      if (FOUNDATION_REAL_STAGE_IDS.includes(nextStage.id)) {
         await executeRealStage(nextStage.id, runState.config)
-      } else {
-        await executeMockStage(nextStage.id)
+      } else if (nextStage.id === 'investigation') {
+        await executeWorkflowStart()
       }
       setRunState((current) => ({ ...current, isRunning: false }))
     } catch (error) {
       failStage(nextStage.id, error)
     }
-  }, [executeMockStage, executeRealStage, failStage, runState.config, runState.isRunning, runState.stages, startStage])
+  }, [executeRealStage, executeWorkflowStart, failStage, runState.config, runState.isRunning, runState.stages, startStage])
 
   const runFullPipeline = useCallback(async () => {
     if (runState.isRunning) return
     const config = runState.config
-    clearTimers()
     backendConfigKey.current = null
     setBackendResults(emptyBackendResults())
     setRunState({ ...initialState(config), isRunning: true })
@@ -373,57 +371,130 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
 
       activeStage = 'investigation'
       startStage(activeStage)
-      await executeMockStage(activeStage)
-
-      activeStage = 'rag'
-      startStage(activeStage)
-      await executeRealStage(activeStage, config)
-
-      for (const stageId of ['assessment', 'approval'] as PipelineStageId[]) {
-        activeStage = stageId
-        startStage(stageId)
-        await executeMockStage(stageId)
-      }
+      await executeWorkflowStart()
       setRunState((current) => ({ ...current, isRunning: false }))
     } catch (error) {
       failStage(activeStage, error)
     }
-  }, [clearTimers, executeMockStage, executeRealStage, failStage, initializeBackend, runState.config, runState.isRunning, startStage])
+  }, [executeRealStage, executeWorkflowStart, failStage, initializeBackend, runState.config, runState.isRunning, startStage])
 
-  const decideWorkOrder = useCallback((decision: Exclude<WorkOrderDecision, 'waiting'>) => {
-    setRunState((current) => {
-      const approvalIsWaiting = current.stages.find((stage) => stage.id === 'approval')?.status === 'waiting'
-      if (!approvalIsWaiting || current.workOrderDecision !== 'waiting') return current
+  const decideWorkOrder = useCallback(async (
+    decision: Exclude<WorkOrderDecision, 'waiting'>,
+  ) => {
+    const approvalIsWaiting = runState.stages.find(
+      (stage) => stage.id === 'approval',
+    )?.status === 'waiting'
 
-      return {
+    if (
+      !approvalIsWaiting ||
+      runState.workOrderDecision !== 'waiting' ||
+      runState.isRunning ||
+      approvalRequestInFlight.current
+    ) {
+      return
+    }
+
+    approvalRequestInFlight.current = true
+
+    setRunState((current) => ({
+      ...current,
+      isRunning: true,
+      selectedStageId: 'approval',
+      stageErrors: {
+        ...current.stageErrors,
+        approval: undefined,
+      },
+    }))
+
+    try {
+      const response = await propertyOpsApi.workflowDecision({
+        approved: decision === 'approved',
+        rationale: decision === 'approved'
+          ? 'Approved by operator in PropertyOps UI.'
+          : 'Rejected by operator in PropertyOps UI.',
+      })
+
+      const backendDecision: WorkOrderDecision = (
+        response.approval.approved
+          ? 'approved'
+          : 'rejected'
+      )
+
+      setBackendResults((current) => ({
         ...current,
-        workOrderDecision: decision,
+        manifest: response.manifest,
+        approval: response.approval,
+        workOrder: response.work_order,
+      }))
+
+      setRunState((current) => ({
+        ...current,
+        isRunning: false,
+        workOrderDecision: backendDecision,
         stages: current.stages.map((stage) => {
-          if (stage.id === 'approval') return { ...stage, status: 'complete' }
-          if (stage.id === 'work-order') return { ...stage, status: decision === 'approved' ? 'complete' : 'skipped' }
+          if (stage.id === 'approval') {
+            return {
+              ...stage,
+              status: 'complete',
+            }
+          }
+
+          if (stage.id === 'work-order') {
+            return {
+              ...stage,
+              status: (
+                backendDecision === 'approved'
+                  ? 'complete'
+                  : 'skipped'
+              ),
+            }
+          }
+
           return stage
         }),
-      }
-    })
-  }, [])
+      }))
+    } catch (error) {
+      setRunState((current) => ({
+        ...current,
+        isRunning: false,
+        selectedStageId: 'approval',
+        stageErrors: {
+          ...current.stageErrors,
+          approval: errorMessage(error),
+        },
+      }))
+    } finally {
+      approvalRequestInFlight.current = false
+    }
+  }, [
+    runState.isRunning,
+    runState.stages,
+    runState.workOrderDecision,
+  ])
 
   const operationsView = useMemo<OperationsView | null>(() => {
     const incident = backendResults.incidentStage?.incident
     const incidentBuilt = runState.stages.find((stage) => stage.id === 'incident')?.status === 'complete'
     if (!incidentBuilt || !incident) return null
 
-    const assessmentComplete = runState.stages.find((stage) => stage.id === 'assessment')?.status === 'complete'
-    const investigationStatus = runState.workOrderDecision === 'approved'
+    const investigation = backendResults.investigation
+    const assessment = backendResults.assessment
+    const investigationStatus = backendResults.approval?.approved
       ? 'approved'
-      : runState.workOrderDecision === 'rejected'
+      : backendResults.approval
         ? 'rejected'
-        : assessmentComplete
+        : assessment
           ? 'assessment_ready'
           : 'investigating'
 
     const telemetry = backendResults.anomalyScores
       ? incidentTelemetry(backendResults.anomalyScores.rows, incident.started_at, incident.ended_at)
       : []
+    const evidence = investigation ? [
+      ...investigation.telemetry_findings.map((detail, index) => ({ id: `telemetry-${index}`, category: 'telemetry' as const, title: `Telemetry finding ${index + 1}`, detail })),
+      ...investigation.maintenance_findings.map((detail, index) => ({ id: `maintenance-${index}`, category: 'maintenance' as const, title: `Maintenance finding ${index + 1}`, detail })),
+      ...investigation.occupant_impact.map((detail, index) => ({ id: `tenant-${index}`, category: 'tenant' as const, title: `Occupant impact ${index + 1}`, detail })),
+    ] : []
 
     return {
       ...knownIncidentView,
@@ -439,14 +510,26 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
         summary: incident.summary,
       },
       telemetry,
+      evidence,
+      complaintsCount: investigation?.occupant_impact.length ?? 0,
+      assessment: {
+        likelyIssue: assessment?.likely_issue ?? '',
+        confidence: assessment?.confidence ?? 0,
+        explanation: investigation?.summary ?? '',
+        telemetryFindings: assessment?.telemetry_findings ?? [],
+        maintenanceFindings: assessment?.maintenance_findings ?? [],
+        occupantImpact: assessment?.occupant_impact ?? [],
+        recommendedNextStep: assessment?.recommended_next_step ?? '',
+      },
       detectionThreshold: backendResults.detectionSummary?.threshold,
       investigationStatus,
       proposedWorkOrder: {
         ...knownIncidentView.proposedWorkOrder,
         buildingId: incident.building_id,
         equipmentId: incident.equipment_id,
-        status: runState.workOrderDecision,
-        resultingId: runState.workOrderDecision === 'approved' ? WORK_ORDER_ID : undefined,
+        description: assessment?.recommended_next_step ?? backendResults.approvalRequest?.recommended_next_step ?? '',
+        status: backendResults.approval ? (backendResults.approval.approved ? 'approved' : 'rejected') : 'waiting',
+        resultingId: backendResults.workOrder?.work_order.id,
       },
     }
   }, [backendResults, runState])
