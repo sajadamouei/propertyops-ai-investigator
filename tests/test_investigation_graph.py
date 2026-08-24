@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -16,6 +17,7 @@ from propertyops_ai_investigator.rag.retriever import (
 )
 from propertyops_ai_investigator.services.investigation_service import (
     InvestigationArtifact,
+    ToolTraceEntry,
 )
 from propertyops_ai_investigator.services.rag_service import (
     RagArtifact,
@@ -73,13 +75,13 @@ def test_route_after_approval():
     approved_state = {
         "approval": ApprovalRecord(
             approved=True,
-        )
+        ).model_dump(mode="json")
     }
 
     rejected_state = {
         "approval": ApprovalRecord(
             approved=False,
-        )
+        ).model_dump(mode="json")
     }
 
     assert (
@@ -99,7 +101,7 @@ def test_route_after_approval():
     )
 
 @pytest.mark.anyio
-async def test_graph_interrupts_for_human_approval_and_resumes_rejection(
+async def test_graph_pause_and_resume_state_is_json_serializable(
     tmp_path,
     monkeypatch,
 ):
@@ -184,6 +186,17 @@ async def test_graph_interrupts_for_human_approval_and_resumes_rejection(
         ),
     )
 
+    trace = [
+        ToolTraceEntry(
+            event="tool_call",
+            tool_name="get_equipment_sensors",
+            tool_call_id="call-1",
+            arguments={
+                "equipment_id": "AHU-001",
+            },
+        )
+    ]
+
     class FakeInvestigationService:
         def __init__(
             self,
@@ -195,13 +208,18 @@ async def test_graph_interrupts_for_human_approval_and_resumes_rejection(
             self,
             incident,
         ):
+            assert isinstance(
+                incident,
+                OperationalIncident,
+            )
+
             call_order.append(
                 "investigate"
             )
 
             return InvestigationArtifact(
                 investigation=investigation,
-                trace=[],
+                trace=trace,
             )
 
     class FakeRagService:
@@ -231,6 +249,19 @@ async def test_graph_interrupts_for_human_approval_and_resumes_rejection(
             investigation,
             rag,
         ):
+            assert isinstance(
+                incident,
+                OperationalIncident,
+            )
+            assert isinstance(
+                investigation,
+                OperationalInvestigation,
+            )
+            assert isinstance(
+                rag,
+                RagArtifact,
+            )
+
             call_order.append(
                 "assessment"
             )
@@ -298,21 +329,44 @@ async def test_graph_interrupts_for_human_approval_and_resumes_rejection(
         "assessment",
     ]
 
-    assert (
-        paused["incident"].id
-        == "INC-TEST"
-    )
+    assert paused["incident"]["id"] == "INC-TEST"
 
     assert (
         paused["investigation"]
-        == investigation
+        == investigation.model_dump(mode="json")
     )
 
-    assert paused["rag"] == rag
+    assert paused["mcp_trace"] == [
+        entry.model_dump(mode="json")
+        for entry in trace
+    ]
+
+    assert (
+        paused["rag"]
+        == rag.model_dump(mode="json")
+    )
 
     assert (
         paused["assessment"]
-        == assessment
+        == assessment.model_dump(mode="json")
+    )
+
+    business_fields = (
+        "incident",
+        "investigation",
+        "mcp_trace",
+        "rag",
+        "assessment",
+        "approval",
+        "work_order",
+    )
+
+    json.dumps(
+        {
+            key: paused[key]
+            for key in business_fields
+            if key in paused
+        }
     )
 
     assert "__interrupt__" in paused
@@ -391,16 +445,24 @@ async def test_graph_interrupts_for_human_approval_and_resumes_rejection(
     ]
 
     assert (
-        resumed["approval"].approved
+        resumed["approval"]["approved"]
         is False
     )
 
     assert (
-        resumed["approval"].rationale
+        resumed["approval"]["rationale"]
         == (
             "Need more evidence before "
             "dispatching maintenance."
         )
+    )
+
+    json.dumps(
+        {
+            key: resumed[key]
+            for key in business_fields
+            if key in resumed
+        }
     )
 
     approval_path = (
