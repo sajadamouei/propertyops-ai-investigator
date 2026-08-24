@@ -19,19 +19,41 @@ from propertyops_ai_investigator.services.workspace import (
     save_manifest,
 )
 
+def ensure_sentence(
+    text: str,
+) -> str:
+    cleaned = text.strip()
+
+    if not cleaned:
+        return cleaned
+
+    if cleaned.endswith(
+        (".", "!", "?")
+    ):
+        return cleaned
+
+    return f"{cleaned}."
 
 def build_work_order_description(
     incident: OperationalIncident,
     assessment: InvestigationAssessment,
 ) -> str:
+    likely_issue = ensure_sentence(
+        assessment.likely_issue
+    )
+
+    recommended_action = ensure_sentence(
+        assessment.recommended_next_step
+    )
+
     return (
         f"Follow up operational incident "
         f"{incident.id} for "
         f"{incident.equipment_id}. "
         f"Likely issue: "
-        f"{assessment.likely_issue}. "
+        f"{likely_issue} "
         f"Recommended action: "
-        f"{assessment.recommended_next_step}"
+        f"{recommended_action}"
     )
 
 

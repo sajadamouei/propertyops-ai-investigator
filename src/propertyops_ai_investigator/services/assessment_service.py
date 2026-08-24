@@ -70,11 +70,17 @@ Important rules:
 
 5. Calibrate confidence between 0 and 1.
 
-6. Recommend a concrete next operational action that
-   can be reviewed by a human before any maintenance
-   work order is created.
+6. Recommend a concrete next operational action for
+   the operator or technician.
 
-7. Do not create or perform a work order.
+7. The recommended_next_step field must describe only
+   the operational action itself. Do not mention
+   approval, authorization, work-order creation, or
+   whether a work order should or should not be
+   created.
+
+8. This task is assessment only. Do not claim that
+   any recommended action has already been performed.
 """.strip()
 
 
