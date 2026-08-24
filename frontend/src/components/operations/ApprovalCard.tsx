@@ -29,8 +29,8 @@ export function ApprovalCard({ workOrder, onDecision }: { workOrder: ProposedWor
         ) : (
           <div className="decision-message">
             {workOrder.status === 'approved'
-              ? `Approval recorded. Mock work order ${workOrder.resultingId ?? ''} is now available.`
-              : 'Rejection recorded in this demo. No work order was created.'}
+              ? `Approval recorded. Work order ${workOrder.resultingId ?? ''} is now available.`
+              : 'Rejection recorded. No work order was created.'}
             <span>Reset from Lab</span>
           </div>
         )}

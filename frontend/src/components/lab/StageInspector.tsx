@@ -1,7 +1,6 @@
 import { AlertCircle, Box, CheckCircle2, Database, FileSearch, Gauge, Info, Search, Wrench } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { RagStageResponse, RealPipelineResults } from '../../api/propertyOpsApi'
-import { mcpCalls, operationsView } from '../../mocks/mockData'
+import type { OperationalInvestigationResponse, RagStageResponse, RealPipelineResults } from '../../api/propertyOpsApi'
 import type { InspectorTab, PipelineStage, PipelineStageId } from '../../types'
 import { StageStatusBadge } from '../common/Badges'
 
@@ -17,49 +16,33 @@ interface StageInspectorProps {
 
 const tabs: InspectorTab[] = ['overview', 'inputs', 'outputs', 'visuals']
 
-const stageFacts: Partial<Record<PipelineStageId, Array<{ label: string; value: string }>>> = {
-  investigation: [{ label: 'Tool calls', value: '4' }, { label: 'Sources', value: '3' }, { label: 'Write calls', value: '0' }],
-  assessment: [{ label: 'Confidence', value: '85%' }, { label: 'Evidence items', value: '7' }, { label: 'Schema', value: 'Valid' }],
-  approval: [{ label: 'Decision', value: 'Required' }, { label: 'Priority', value: 'High' }, { label: 'Side effects', value: 'Blocked' }],
-  'work-order': [{ label: 'Work order', value: 'WO-DEMO-1042' }, { label: 'Status', value: 'Open' }, { label: 'Target', value: 'AHU-001' }],
-}
-
-const realStageIds: PipelineStageId[] = ['generate', 'features', 'detection', 'incident', 'rag']
-
 export function StageInspector({ stage, activeTab, onTabChange, approvalDecision, onApprovalDecision, backendResults, stageError }: StageInspectorProps) {
-  const isRealStage = realStageIds.includes(stage.id)
   return (
     <section className="inspector panel-dark">
       <header className="inspector-header">
         <div><span className="lab-eyebrow">Stage inspector</span><div className="inspector-title"><h2>{stage.label}</h2><StageStatusBadge status={stage.status} /></div><p>{stage.description}</p></div>
-        <div className="inspector-source"><span className={`source-badge ${isRealStage ? 'source-real' : 'source-mock'}`}>{isRealStage ? 'REAL BACKEND' : 'MOCK - NOT YET CONNECTED'}</span><span className="inspector-stage-id">{stage.id}</span></div>
+        <div className="inspector-source"><span className="source-badge source-real">REAL BACKEND</span><span className="inspector-stage-id">{stage.id}</span></div>
       </header>
       <div className="inspector-tabs" role="tablist">
         {tabs.map((tab) => <button key={tab} role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'active' : ''} onClick={() => onTabChange(tab)}>{tab}</button>)}
       </div>
       <div className="inspector-body" role="tabpanel">
         {stageError && <div className="stage-error" role="alert"><AlertCircle size={16} /><span>{stageError}</span></div>}
-        {isRealStage
-          ? <RealStageContent stageId={stage.id} activeTab={activeTab} results={backendResults} />
-          : <>
-              {activeTab === 'overview' && <Overview stage={stage} approvalDecision={approvalDecision} onApprovalDecision={onApprovalDecision} />}
-              {activeTab === 'inputs' && <Inputs stageId={stage.id} approvalDecision={approvalDecision} />}
-              {activeTab === 'outputs' && <Outputs stageId={stage.id} approvalDecision={approvalDecision} />}
-              {activeTab === 'visuals' && <Visuals stageId={stage.id} />}
-            </>}
+        <RealStageContent stage={stage} activeTab={activeTab} results={backendResults} approvalDecision={approvalDecision} onApprovalDecision={onApprovalDecision} />
       </div>
     </section>
   )
 }
 
-function RealStageContent({ stageId, activeTab, results }: { stageId: PipelineStageId; activeTab: InspectorTab; results: RealPipelineResults }) {
-  if (activeTab === 'overview') return <RealOverview stageId={stageId} results={results} />
-  if (activeTab === 'inputs') return <RealInputs stageId={stageId} results={results} />
-  if (activeTab === 'outputs') return <RealOutputs stageId={stageId} results={results} />
-  return <RealVisuals stageId={stageId} results={results} />
+function RealStageContent({ stage, activeTab, results, approvalDecision, onApprovalDecision }: { stage: PipelineStage; activeTab: InspectorTab; results: RealPipelineResults; approvalDecision: 'waiting' | 'approved' | 'rejected'; onApprovalDecision: (decision: 'approved' | 'rejected') => void }) {
+  if (activeTab === 'overview') return <RealOverview stage={stage} results={results} approvalDecision={approvalDecision} onApprovalDecision={onApprovalDecision} />
+  if (activeTab === 'inputs') return <RealInputs stageId={stage.id} results={results} />
+  if (activeTab === 'outputs') return <RealOutputs stageId={stage.id} results={results} />
+  return <RealVisuals stageId={stage.id} results={results} />
 }
 
-function RealOverview({ stageId, results }: { stageId: PipelineStageId; results: RealPipelineResults }) {
+function RealOverview({ stage, results, approvalDecision, onApprovalDecision }: { stage: PipelineStage; results: RealPipelineResults; approvalDecision: 'waiting' | 'approved' | 'rejected'; onApprovalDecision: (decision: 'approved' | 'rejected') => void }) {
+  const stageId = stage.id
   const config = results.manifest?.config
   if (stageId === 'generate') {
     if (!config) return <AwaitingBackend />
@@ -80,9 +63,33 @@ function RealOverview({ stageId, results }: { stageId: PipelineStageId; results:
     if (!results.detectionStage) return <AwaitingBackend />
     return <RealOverviewLayout summary="Scores the real feature table and groups consecutive anomalous observations into events." facts={[{ label: 'Threshold', value: results.detectionStage.threshold.toFixed(4) }, { label: 'Anomalous observations', value: String(results.detectionStage.anomalous_observations) }, { label: 'Events', value: String(results.detectionStage.event_count) }]} />
   }
+  if (stageId === 'investigation') {
+    const investigation = results.investigation
+    if (!investigation) return <AwaitingBackend />
+    return <RealOverviewLayout summary={investigation.summary} facts={[{ label: 'Telemetry findings', value: String(investigation.telemetry_findings.length) }, { label: 'Maintenance findings', value: String(investigation.maintenance_findings.length) }, { label: 'Occupant impacts', value: String(investigation.occupant_impact.length) }, { label: 'MCP trace entries', value: String(results.mcpTrace.length) }]} />
+  }
   if (stageId === 'rag') {
     if (!results.ragStage) return <AwaitingBackend />
     return <RealOverviewLayout summary="Focused retrieval queries are searched separately, then merged and deduplicated to preserve coverage across the operational incident." facts={[{ label: 'Retrieval queries', value: String(results.ragStage.retrieval_queries.length) }, { label: 'Embedding model', value: results.ragStage.embedding_model }, { label: 'Retrieved chunks', value: String(results.ragStage.results.length) }]} detail={`One operational incident → ${results.ragStage.retrieval_queries.length} focused retrieval queries → FAISS search → merge/deduplicate → ${results.ragStage.results.length} final technical context chunks`} />
+  }
+  if (stageId === 'assessment') {
+    const assessment = results.assessment
+    if (!assessment) return <AwaitingBackend />
+    return <RealOverviewLayout summary={assessment.likely_issue} facts={[{ label: 'Confidence', value: `${Math.round(assessment.confidence * 100)}%` }, { label: 'Telemetry findings', value: String(assessment.telemetry_findings.length) }, { label: 'Maintenance findings', value: String(assessment.maintenance_findings.length) }, { label: 'Occupant impacts', value: String(assessment.occupant_impact.length) }]} detail={assessment.recommended_next_step} />
+  }
+  if (stageId === 'approval') {
+    if (results.approval) {
+      return <RealOverviewLayout summary={results.approval.approved ? 'The operator approved the proposed maintenance action.' : 'The operator rejected the proposed maintenance action.'} facts={[{ label: 'Decision', value: results.approval.approved ? 'Approved' : 'Rejected' }, { label: 'Decided at', value: formatTimestamp(results.approval.decided_at) }]} detail={results.approval.rationale ?? undefined} />
+    }
+    const prompt = results.approvalRequest
+    if (!prompt) return <AwaitingBackend />
+    return <div className="approval-inspector"><div className="approval-inspector-copy"><span className="warning-icon"><Wrench size={20} /></span><div><h3>{prompt.question}</h3><p>{prompt.recommended_next_step}</p><div className="mini-meta"><span>{prompt.incident_id}</span><span>{prompt.equipment_id}</span><span>{Math.round(prompt.confidence * 100)}% confidence</span></div></div></div><div className="approval-inspector-actions">{approvalDecision !== 'waiting' ? <div className={`lab-decision decision-${approvalDecision}`}><CheckCircle2 size={17} /> Decision: {approvalDecision}</div> : stage.status === 'waiting' ? <><button className="button button-lime" onClick={() => onApprovalDecision('approved')}>Approve work order</button><button className="button button-ghost-dark" onClick={() => onApprovalDecision('rejected')}>Reject</button></> : <div className="lab-decision">Available when the pipeline reaches approval</div>}</div></div>
+  }
+  if (stageId === 'work-order') {
+    if (!results.approval) return <div className="real-empty"><Wrench size={22} /><h3>Awaiting operator decision</h3><p>A work order can only be created after the approval stage completes.</p></div>
+    if (!results.approval.approved || !results.workOrder) return <div className="real-empty"><CheckCircle2 size={22} /><h3>No work order created</h3><p>The proposed action was rejected, so the backend did not create a work order.</p></div>
+    const workOrder = results.workOrder.work_order
+    return <RealOverviewLayout summary={workOrder.description} facts={[{ label: 'Work order', value: workOrder.id }, { label: 'Status', value: workOrder.status }, { label: 'Building', value: workOrder.building_id }, { label: 'Equipment', value: workOrder.equipment_id }]} detail={`Created ${formatTimestamp(workOrder.created_at)}`} />
   }
   const incident = results.incidentStage?.incident
   if (!results.incidentStage) return <AwaitingBackend />
@@ -98,8 +105,12 @@ function RealInputs({ stageId, results }: { stageId: PipelineStageId; results: R
   if (stageId === 'generate') return results.manifest ? <JsonBlock title="Experiment configuration" value={results.manifest.config} source="real backend" /> : <AwaitingBackend />
   if (stageId === 'features') return results.rawTelemetry ? <JsonBlock title="Raw telemetry summary" value={{ total_rows: results.rawTelemetry.total_rows, columns: results.rawTelemetry.columns }} source="real backend" /> : <AwaitingBackend />
   if (stageId === 'detection') return results.features ? <JsonBlock title="Feature input summary" value={{ total_rows: results.features.total_rows, columns: results.features.columns }} source="real backend" /> : <AwaitingBackend />
+  if (stageId === 'incident') return results.events ? <DataTable title="Detected events" columns={results.events.columns} rows={results.events.rows.slice(0, 12)} /> : <AwaitingBackend />
+  if (stageId === 'investigation') return results.incidentStage?.incident ? <JsonBlock title="OperationalIncident" value={results.incidentStage.incident} source="real backend" /> : <AwaitingBackend />
   if (stageId === 'rag') return results.ragStage ? <RagInputs rag={results.ragStage} /> : <AwaitingBackend />
-  return results.events ? <DataTable title="Detected events" columns={results.events.columns} rows={results.events.rows.slice(0, 12)} /> : <AwaitingBackend />
+  if (stageId === 'assessment') return results.investigation && results.ragStage ? <div className="real-output-stack"><JsonBlock title="OperationalInvestigation" value={results.investigation} source="real backend" /><JsonBlock title="RAG context summary" value={{ query: results.ragStage.query, retrieval_queries: results.ragStage.retrieval_queries, retrieved_chunks: results.ragStage.results.length, sources: results.ragStage.results.map((result) => result.source) }} source="real backend" /></div> : <AwaitingBackend />
+  if (stageId === 'approval') return results.approvalRequest ? <JsonBlock title="WorkflowApprovalPrompt" value={results.approvalRequest} source="real backend" /> : <AwaitingBackend />
+  return results.approval ? <JsonBlock title="ApprovalRecord" value={results.approval} source="real backend" /> : <AwaitingBackend />
 }
 
 function RealOutputs({ stageId, results }: { stageId: PipelineStageId; results: RealPipelineResults }) {
@@ -109,8 +120,13 @@ function RealOutputs({ stageId, results }: { stageId: PipelineStageId; results: 
     if (!results.anomalyScores || !results.events) return <AwaitingBackend />
     return <div className="real-output-stack"><DataTable title="Anomaly score preview" columns={results.anomalyScores.columns} rows={results.anomalyScores.rows.slice(0, 10)} /><DataTable title="Detected events" columns={results.events.columns} rows={results.events.rows.slice(0, 10)} /></div>
   }
+  if (stageId === 'incident') return results.incidentStage ? <JsonBlock title="OperationalIncident" value={results.incidentStage.incident} source="real backend" /> : <AwaitingBackend />
+  if (stageId === 'investigation') return results.investigation ? <div className="real-output-stack"><JsonBlock title="OperationalInvestigation" value={results.investigation} source="real backend" /><JsonBlock title="MCP trace" value={results.mcpTrace} source="real backend" /></div> : <AwaitingBackend />
   if (stageId === 'rag') return results.ragStage ? <RagResults rag={results.ragStage} /> : <AwaitingBackend />
-  return results.incidentStage ? <JsonBlock title="OperationalIncident" value={results.incidentStage.incident} source="real backend" /> : <AwaitingBackend />
+  if (stageId === 'assessment') return results.assessment ? <JsonBlock title="InvestigationAssessment" value={results.assessment} source="real backend" /> : <AwaitingBackend />
+  if (stageId === 'approval') return results.approval ? <JsonBlock title="ApprovalRecord" value={results.approval} source="real backend" /> : results.approvalRequest ? <JsonBlock title="Pending approval request" value={results.approvalRequest} source="real backend" /> : <AwaitingBackend />
+  if (!results.approval) return <AwaitingBackend />
+  return results.workOrder ? <JsonBlock title="WorkOrderCreationResult" value={results.workOrder} source="real backend" /> : <JsonBlock title="WorkOrderCreationResult" value={{ created: false, work_order: null, reason: 'Operator rejected the proposed action.' }} source="real backend" />
 }
 
 function RealVisuals({ stageId, results }: { stageId: PipelineStageId; results: RealPipelineResults }) {
@@ -128,7 +144,10 @@ function RealVisuals({ stageId, results }: { stageId: PipelineStageId; results: 
     if (!data.length || threshold === undefined) return <AwaitingBackend />
     return <ChartFrame title="Anomaly score by timestamp" legend={`Backend threshold: ${threshold.toFixed(4)}`}><ResponsiveContainer width="100%" height="100%"><AreaChart data={data}><defs><linearGradient id="realScoreFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#b9db75" stopOpacity={0.35} /><stop offset="1" stopColor="#b9db75" stopOpacity={0} /></linearGradient></defs><CartesianGrid stroke="#2d3940" vertical={false} /><XAxis dataKey="label" tick={{ fill: '#89969c', fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={30} /><YAxis domain={['auto', 'auto']} tick={{ fill: '#89969c', fontSize: 10 }} axisLine={false} tickLine={false} /><Tooltip contentStyle={{ background: '#10191d', border: '1px solid #344148', borderRadius: 8 }} /><ReferenceLine y={threshold} stroke="#e19a65" strokeDasharray="5 4" label={{ value: 'threshold', fill: '#e19a65', fontSize: 10 }} /><Area type="monotone" dataKey="anomalyScore" stroke="#b9db75" fill="url(#realScoreFill)" strokeWidth={2.5} /></AreaChart></ResponsiveContainer></ChartFrame>
   }
+  if (stageId === 'investigation') return results.investigation ? <EvidenceCoverage investigation={results.investigation} /> : <AwaitingBackend />
   if (stageId === 'rag') return results.ragStage ? <RetrievalVisual rag={results.ragStage} /> : <AwaitingBackend />
+  if (stageId === 'assessment') return results.assessment ? <ConfidenceVisual confidence={results.assessment.confidence} /> : <AwaitingBackend />
+  if (stageId === 'approval' || stageId === 'work-order') return <FlowBoundary stageId={stageId} />
   const incident = results.incidentStage?.incident
   return incident ? <div className="incident-evidence-visual"><h3>Incident evidence</h3>{incident.evidence.map((item) => <div key={`${item.metric}-${item.aggregation}`}><span>{item.metric}</span><strong>{item.value.toLocaleString()} {item.unit ?? ''}</strong><small>{item.aggregation}</small></div>)}</div> : <AwaitingBackend />
 }
@@ -170,60 +189,8 @@ function AwaitingBackend() {
   return <div className="real-empty"><Database size={22} /><h3>Backend result not available</h3><p>Run this stage to inspect its real response and artifacts.</p></div>
 }
 
-function Overview({ stage, approvalDecision, onApprovalDecision }: { stage: PipelineStage; approvalDecision: 'waiting' | 'approved' | 'rejected'; onApprovalDecision: (decision: 'approved' | 'rejected') => void }) {
-  if (stage.id === 'approval') {
-    return (
-      <div className="approval-inspector">
-        <div className="approval-inspector-copy"><span className="warning-icon"><Wrench size={20} /></span><div><h3>Inspect AHU-001 heating valve controls</h3><p>Verify actuator response, mechanical linkage, calibration, and overnight control schedule before replacing any components.</p><div className="mini-meta"><span>BLDG-001</span><span>AHU-001</span><span>High priority</span></div></div></div>
-        <div className="approval-inspector-actions">
-          {approvalDecision !== 'waiting'
-            ? <div className={`lab-decision decision-${approvalDecision}`}><CheckCircle2 size={17} /> Decision: {approvalDecision}</div>
-            : stage.status === 'waiting'
-              ? <><button className="button button-lime" onClick={() => onApprovalDecision('approved')}>Approve in demo</button><button className="button button-ghost-dark" onClick={() => onApprovalDecision('rejected')}>Reject</button></>
-              : <div className="lab-decision">Available when the pipeline reaches approval</div>}
-        </div>
-      </div>
-    )
-  }
-
-  const messages: Partial<Record<PipelineStageId, string>> = {
-    investigation: 'The agent follows a read-only evidence trail. Sensor discovery happens before telemetry access, and operational facts come from tools.',
-    rag: 'Retrieves a small set of relevant operating procedures to contextualize the observed evidence without treating documentation as proof.',
-    assessment: 'Returns a typed assessment that distinguishes the likely issue from confirmed evidence and recommends a bounded next step.',
-    approval: '',
-    'work-order': 'A write action is available only after explicit approval. This prototype displays the resulting record but never calls the Python server.',
-  }
-  return (
-    <div className="overview-layout">
-      <div className="stage-summary"><Info size={18} /><div><h3>What this stage does</h3><p>{messages[stage.id] ?? ''}</p></div></div>
-      <div className="fact-grid">{(stageFacts[stage.id] ?? []).map((fact) => <div className="fact-card" key={fact.label}><span>{fact.label}</span><strong>{fact.value}</strong></div>)}</div>
-      <div className="stage-rule"><AlertCircle size={16} /><span>{stage.id === 'work-order' ? 'Write boundary: requires an approved decision.' : stage.id === 'assessment' ? 'Output is schema-validated before presentation.' : 'All values shown here are local mock data for the frontend prototype.'}</span></div>
-    </div>
-  )
-}
-
-function Inputs({ stageId, approvalDecision }: { stageId: PipelineStageId; approvalDecision: 'waiting' | 'approved' | 'rejected' }) {
-  if (stageId === 'investigation') return <JsonBlock title="Incident context" value={{ building_id: 'BLDG-001', equipment_id: 'AHU-001', zone_id: 'ZONE-003', incident_window: ['2026-01-15T01:00:00', '2026-01-15T05:00:00'], constraints: ['read-only investigation', 'do not invent evidence'] }} />
-  if (stageId === 'assessment') return <TagList title="Evidence bundle" tags={['20 telemetry readings', '2 maintenance records', '3 tenant complaints', '3 RAG chunks']} />
-  if (stageId === 'approval') return <JsonBlock title="Proposed work order" value={{ ...operationsView.proposedWorkOrder, status: approvalDecision }} />
-  return <JsonBlock title="Approval token" value={{ approved_by: approvalDecision === 'approved' ? 'demo.operator' : null, decision: approvalDecision, action_authorized: approvalDecision === 'approved', proposed_action: 'create_work_order' }} />
-}
-
-function Outputs({ stageId, approvalDecision }: { stageId: PipelineStageId; approvalDecision: 'waiting' | 'approved' | 'rejected' }) {
-  if (stageId === 'investigation') return <ToolCalls />
-  if (stageId === 'assessment') return <JsonBlock title="InvestigationAssessment" value={{ likely_issue: operationsView.assessment.likelyIssue, confidence: operationsView.assessment.confidence, telemetry_findings: operationsView.assessment.telemetryFindings, maintenance_findings: operationsView.assessment.maintenanceFindings, occupant_impact: operationsView.assessment.occupantImpact, recommended_next_step: operationsView.assessment.recommendedNextStep }} />
-  if (stageId === 'approval') return <JsonBlock title="Decision state" value={{ status: approvalDecision, action_authorized: approvalDecision === 'approved', recorded_locally: true }} />
-  return <JsonBlock title="WorkOrder" value={{ id: approvalDecision === 'approved' ? 'WO-DEMO-1042' : null, building_id: 'BLDG-001', equipment_id: 'AHU-001', status: approvalDecision === 'approved' ? 'open' : 'not_created', note: 'Frontend mock only' }} />
-}
-
-function Visuals({ stageId }: { stageId: PipelineStageId }) {
-  if (stageId === 'investigation') return <EvidenceCoverage />
-  if (stageId === 'assessment') return <ConfidenceVisual />
-  return <FlowBoundary stageId={stageId} />
-}
-
-function EvidenceCoverage() {
-  const data = [{ name: 'Telemetry', items: 20 }, { name: 'Maintenance', items: 2 }, { name: 'Complaints', items: 3 }]
+function EvidenceCoverage({ investigation }: { investigation: OperationalInvestigationResponse }) {
+  const data = [{ name: 'Telemetry', items: investigation.telemetry_findings.length }, { name: 'Maintenance', items: investigation.maintenance_findings.length }, { name: 'Occupant impact', items: investigation.occupant_impact.length }]
   return <ChartFrame title="Evidence collected by source" legend="All requested operational sources were checked."><ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ left: 20 }}><CartesianGrid stroke="#2d3940" horizontal={false} /><XAxis type="number" tick={{ fill: '#89969c', fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="name" tick={{ fill: '#c9d2d5', fontSize: 11 }} axisLine={false} tickLine={false} width={78} /><Tooltip contentStyle={{ background: '#10191d', border: '1px solid #344148', borderRadius: 8 }} /><Bar dataKey="items" fill="#b9db75" radius={[0, 4, 4, 0]} barSize={18} /></BarChart></ResponsiveContainer></ChartFrame>
 }
 
@@ -232,16 +199,13 @@ function RetrievalVisual({ rag }: { rag: RagStageResponse }) {
   return <ChartFrame title="Retrieval relevance" legend="Backend similarity score by retrieved document chunk."><ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ left: 30 }}><CartesianGrid stroke="#2d3940" horizontal={false} /><XAxis type="number" domain={[0, 1]} tick={{ fill: '#89969c', fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="label" tick={{ fill: '#89969c', fontSize: 9 }} axisLine={false} tickLine={false} width={150} /><Tooltip contentStyle={{ background: '#10191d', border: '1px solid #344148', borderRadius: 8 }} /><Bar dataKey="score" fill="#b9db75" radius={[0, 4, 4, 0]} barSize={22} /></BarChart></ResponsiveContainer></ChartFrame>
 }
 
-function ConfidenceVisual() {
-  return <div className="confidence-visual"><div className="confidence-gauge"><Gauge size={38} /><strong>85%</strong><span>Assessment confidence</span></div><div className="confidence-breakdown"><div><span>Telemetry consistency</span><i><b style={{ width: '92%' }} /></i><strong>92%</strong></div><div><span>Maintenance corroboration</span><i><b style={{ width: '80%' }} /></i><strong>80%</strong></div><div><span>Occupant correlation</span><i><b style={{ width: '83%' }} /></i><strong>83%</strong></div></div></div>
+function ConfidenceVisual({ confidence }: { confidence: number }) {
+  const percent = Math.round(confidence * 100)
+  return <div className="confidence-visual"><div className="confidence-gauge"><Gauge size={38} /><strong>{percent}%</strong><span>Assessment confidence</span></div><div className="confidence-breakdown"><div><span>Backend assessment confidence</span><i><b style={{ width: `${percent}%` }} /></i><strong>{percent}%</strong></div></div></div>
 }
 
 function FlowBoundary({ stageId }: { stageId: PipelineStageId }) {
   return <div className="flow-boundary"><div><Box size={20} /><strong>Assessment</strong></div><span className="boundary-line"><em>explicit operator decision</em></span><div className={stageId === 'work-order' ? 'active' : ''}><Wrench size={20} /><strong>Work order</strong></div></div>
-}
-
-function ToolCalls() {
-  return <div className="tool-call-list">{mcpCalls.map((call, index) => <article className="tool-call" key={call.id}><div className="tool-sequence">{index + 1}</div><div className="tool-call-main"><div className="tool-call-heading"><code>{call.name}</code><span><CheckCircle2 size={13} /> complete</span></div><p>{call.purpose}</p><div className="tool-io"><div><small>Arguments</small><pre>{JSON.stringify(call.arguments, null, 2)}</pre></div><div><small>Result</small><span>{call.resultSummary}</span></div></div></div></article>)}</div>
 }
 
 function RagInputs({ rag }: { rag: RagStageResponse }) {
@@ -253,12 +217,8 @@ function RagResults({ rag }: { rag: RagStageResponse }) {
   return <div className="rag-results">{rag.results.map((item, index) => <article className="rag-card" key={item.chunk_id}><div className="rag-rank">{String(index + 1).padStart(2, '0')}</div><div><div className="rag-heading"><span><FileSearch size={14} />{item.source}</span><strong>{item.score.toFixed(4)}</strong></div><small>{item.chunk_id}</small><p>{item.text}</p></div></article>)}</div>
 }
 
-function JsonBlock({ title, value, source = 'mock payload' }: { title: string; value: unknown; source?: string }) {
+function JsonBlock({ title, value, source = 'real backend' }: { title: string; value: unknown; source?: string }) {
   return <div className="json-block"><div className="code-heading"><span><Database size={14} />{title}</span><small>{source}</small></div><pre>{JSON.stringify(value, null, 2)}</pre></div>
-}
-
-function TagList({ title, tags }: { title: string; tags: string[] }) {
-  return <div className="tag-list"><h3>{title}</h3><div>{tags.map((tag) => <code key={tag}>{tag}</code>)}</div></div>
 }
 
 function DataTable({ title, columns, rows }: { title: string; columns: string[]; rows: Array<Record<string, unknown>> }) {

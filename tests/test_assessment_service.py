@@ -116,6 +116,21 @@ def test_assessment_prompt_separates_evidence_and_guidance():
     )
 
     assert (
-        "Do not create or perform a work order"
-        in prompt
+        "recommended_next_step field must describe only"
+        in normalized_prompt
+    )
+
+    assert (
+        "Do not mention approval, authorization,"
+        in normalized_prompt
+    )
+
+    assert (
+        "work-order creation"
+        in normalized_prompt
+    )
+
+    assert (
+        "assessment only"
+        in normalized_prompt
     )

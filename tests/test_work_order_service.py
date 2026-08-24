@@ -15,9 +15,12 @@ from propertyops_ai_investigator.domain.models import (
 from propertyops_ai_investigator.services import (
     work_order_service,
 )
+
 from propertyops_ai_investigator.services.work_order_service import (
     WorkOrderService,
+    build_work_order_description,
 )
+
 from propertyops_ai_investigator.services.workspace import (
     APPROVAL_FILE,
     WORK_ORDER_FILE,
@@ -68,6 +71,72 @@ def create_assessment():
         ),
     )
 
+def test_work_order_description_normalizes_punctuation():
+    incident = create_incident()
+
+    punctuated = InvestigationAssessment(
+        likely_issue=(
+            "Possible heating valve issue."
+        ),
+        confidence=0.8,
+        telemetry_findings=[],
+        maintenance_findings=[],
+        occupant_impact=[],
+        evidence=[],
+        recommended_next_step=(
+            "Inspect actuator and linkage."
+        ),
+    )
+
+    description = build_work_order_description(
+        incident,
+        punctuated,
+    )
+
+    assert ".." not in description
+
+    assert (
+        "Likely issue: "
+        "Possible heating valve issue. "
+        in description
+    )
+
+    assert (
+        "Recommended action: "
+        "Inspect actuator and linkage."
+        in description
+    )
+
+    unpunctuated = InvestigationAssessment(
+        likely_issue=(
+            "Possible heating valve issue"
+        ),
+        confidence=0.8,
+        telemetry_findings=[],
+        maintenance_findings=[],
+        occupant_impact=[],
+        evidence=[],
+        recommended_next_step=(
+            "Inspect actuator and linkage"
+        ),
+    )
+
+    description = build_work_order_description(
+        incident,
+        unpunctuated,
+    )
+
+    assert (
+        "Likely issue: "
+        "Possible heating valve issue. "
+        in description
+    )
+
+    assert (
+        "Recommended action: "
+        "Inspect actuator and linkage."
+        in description
+    )
 
 def create_manifest(
     tmp_path,

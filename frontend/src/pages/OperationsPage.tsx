@@ -17,6 +17,7 @@ export function OperationsPage() {
     maintenance: operationsView.evidence.filter((item) => item.category === 'maintenance'),
     tenant: operationsView.evidence.filter((item) => item.category === 'tenant'),
   }
+  const findingCount = operationsView.evidence.length
   const assessmentReady = operationsView.investigationStatus !== 'investigating'
   const evidenceReady = runState.stages.find((stage) => stage.id === 'investigation')?.status === 'complete'
   const approvalStageStatus = runState.stages.find((stage) => stage.id === 'approval')?.status
@@ -77,12 +78,12 @@ export function OperationsPage() {
       </div>
 
       <section className="panel evidence-panel">
-        <div className="panel-heading"><div><span className="eyebrow">Investigation record</span><h2>{evidenceReady ? 'Evidence reviewed' : 'Evidence collection pending'}</h2></div>{evidenceReady && <span className="record-count">7 findings</span>}</div>
+        <div className="panel-heading"><div><span className="eyebrow">Investigation record</span><h2>{evidenceReady ? 'Evidence reviewed' : 'Evidence collection pending'}</h2></div>{evidenceReady && <span className="record-count">{findingCount} findings</span>}</div>
         {evidenceReady ? (
           <div className="evidence-grid">
-            <EvidenceGroup title="Telemetry" subtitle="3 findings" items={groups.telemetry} />
-            <EvidenceGroup title="Maintenance history" subtitle="1 relevant record" items={groups.maintenance} />
-            <EvidenceGroup title="Tenant impact" subtitle="3 complaints" items={groups.tenant} />
+            <EvidenceGroup title="Telemetry" subtitle={`${groups.telemetry.length} findings`} items={groups.telemetry} />
+            <EvidenceGroup title="Maintenance history" subtitle={`${groups.maintenance.length} findings`} items={groups.maintenance} />
+            <EvidenceGroup title="Tenant impact" subtitle={`${groups.tenant.length} findings`} items={groups.tenant} />
           </div>
         ) : (
           <div className="evidence-pending"><Gauge size={18} /><span>Advance the AI Investigation stage to collect maintenance and tenant-impact evidence.</span></div>
