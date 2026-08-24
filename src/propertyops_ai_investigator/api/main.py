@@ -36,6 +36,11 @@ from propertyops_ai_investigator.services.workspace import (
     RunStatus,
     load_manifest,
     reset_current_run,
+    APPROVAL_FILE,
+    ASSESSMENT_FILE,
+    INVESTIGATION_FILE,
+    MCP_TRACE_FILE,
+    WORK_ORDER_FILE,
 )
 
 from propertyops_ai_investigator.data.experiment import (
@@ -53,6 +58,17 @@ from propertyops_ai_investigator.services.rag_service import (
 from propertyops_ai_investigator.workflows.investigation_graph import (
     resume_investigation_graph,
     run_investigation_graph,
+)
+
+from propertyops_ai_investigator.domain.models import (
+    ApprovalRecord,
+    InvestigationAssessment,
+    OperationalInvestigation,
+    WorkOrderCreationResult,
+)
+
+from propertyops_ai_investigator.services.investigation_service import (
+    ToolTraceEntry,
 )
 
 app = FastAPI(
@@ -533,3 +549,164 @@ async def decide_workflow(
             status_code=400,
             detail=str(exc),
         ) from exc
+
+@app.get(
+    "/api/artifacts/investigation",
+    response_model=OperationalInvestigation,
+)
+def get_investigation_artifact(
+) -> OperationalInvestigation:
+    path = (
+        CURRENT_RUN_DIR
+        / INVESTIGATION_FILE
+    )
+
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Investigation artifact "
+                "not found."
+            ),
+        )
+
+    return (
+        OperationalInvestigation
+        .model_validate_json(
+            path.read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+
+
+@app.get(
+    "/api/artifacts/mcp-trace",
+    response_model=list[ToolTraceEntry],
+)
+def get_mcp_trace_artifact(
+) -> list[ToolTraceEntry]:
+    path = (
+        CURRENT_RUN_DIR
+        / MCP_TRACE_FILE
+    )
+
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "MCP trace artifact "
+                "not found."
+            ),
+        )
+
+    entries: list[
+        ToolTraceEntry
+    ] = []
+
+    for line in path.read_text(
+        encoding="utf-8"
+    ).splitlines():
+        line = line.strip()
+
+        if not line:
+            continue
+
+        entries.append(
+            ToolTraceEntry
+            .model_validate_json(
+                line
+            )
+        )
+
+    return entries
+
+
+@app.get(
+    "/api/artifacts/assessment",
+    response_model=InvestigationAssessment,
+)
+def get_assessment_artifact(
+) -> InvestigationAssessment:
+    path = (
+        CURRENT_RUN_DIR
+        / ASSESSMENT_FILE
+    )
+
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Assessment artifact "
+                "not found."
+            ),
+        )
+
+    return (
+        InvestigationAssessment
+        .model_validate_json(
+            path.read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+
+
+@app.get(
+    "/api/artifacts/approval",
+    response_model=ApprovalRecord,
+)
+def get_approval_artifact(
+) -> ApprovalRecord:
+    path = (
+        CURRENT_RUN_DIR
+        / APPROVAL_FILE
+    )
+
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Approval artifact "
+                "not found."
+            ),
+        )
+
+    return (
+        ApprovalRecord
+        .model_validate_json(
+            path.read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+
+
+@app.get(
+    "/api/artifacts/work-order",
+    response_model=WorkOrderCreationResult,
+)
+def get_work_order_artifact(
+) -> WorkOrderCreationResult:
+    path = (
+        CURRENT_RUN_DIR
+        / WORK_ORDER_FILE
+    )
+
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Work-order artifact "
+                "not found."
+            ),
+        )
+
+    return (
+        WorkOrderCreationResult
+        .model_validate_json(
+            path.read_text(
+                encoding="utf-8"
+            )
+        )
+    )

@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from propertyops_ai_investigator.api.main import (
@@ -12,7 +14,15 @@ from propertyops_ai_investigator.domain.models import (
     ApprovalRecord,
     InvestigationAssessment,
     OperationalInvestigation,
+    WorkOrder,
+    WorkOrderCreationResult,
+    WorkOrderStatus,
 )
+
+from propertyops_ai_investigator.services.investigation_service import (
+    ToolTraceEntry,
+)
+
 from propertyops_ai_investigator.services.investigation_service import (
     ToolTraceEntry,
 )
@@ -24,6 +34,12 @@ from propertyops_ai_investigator.services.workspace import (
     RunStatus,
     load_manifest,
     save_manifest,
+    APPROVAL_FILE,
+    ASSESSMENT_FILE,
+    CURRENT_RUN_DIR,
+    INVESTIGATION_FILE,
+    MCP_TRACE_FILE,
+    WORK_ORDER_FILE,
 )
 
 
@@ -477,4 +493,198 @@ def test_workflow_start_and_reject_through_api(
             "manifest"
         ]["status"]
         == "complete"
+    )
+
+def test_workflow_artifact_endpoints():
+    reset = client.post(
+        "/api/runs/reset",
+        json=heating_fault_payload(),
+    )
+
+    assert reset.status_code == 200
+
+    investigation = (
+        OperationalInvestigation(
+            summary="Evidence gathered.",
+            telemetry_findings=[
+                "High valve command."
+            ],
+            maintenance_findings=[
+                "Previous calibration."
+            ],
+            occupant_impact=[
+                "Cold complaints."
+            ],
+            evidence=[
+                "Operational evidence."
+            ],
+        )
+    )
+
+    assessment = (
+        InvestigationAssessment(
+            likely_issue=(
+                "Possible actuator issue."
+            ),
+            confidence=0.8,
+            telemetry_findings=[],
+            maintenance_findings=[],
+            occupant_impact=[],
+            evidence=[],
+            recommended_next_step=(
+                "Inspect actuator."
+            ),
+        )
+    )
+
+    approval = ApprovalRecord(
+        approved=True,
+        rationale="Approved.",
+    )
+
+    work_order = (
+        WorkOrderCreationResult(
+            created=True,
+            work_order=WorkOrder(
+                id="WO-TEST",
+                building_id="BLDG-001",
+                equipment_id="AHU-001",
+                created_at=(
+                    "2026-01-15T12:00:00Z"
+                ),
+                description=(
+                    "Inspect actuator."
+                ),
+                status=(
+                    WorkOrderStatus.OPEN
+                ),
+            ),
+        )
+    )
+
+    trace = [
+        ToolTraceEntry(
+            event="tool_call",
+            tool_name=(
+                "get_equipment_sensors"
+            ),
+            tool_call_id="call-1",
+            arguments={
+                "equipment_id": "AHU-001"
+            },
+        ),
+        ToolTraceEntry(
+            event="tool_result",
+            tool_name=(
+                "get_equipment_sensors"
+            ),
+            tool_call_id="call-1",
+            content=(
+                '{"result": []}'
+            ),
+        ),
+    ]
+
+    (
+        CURRENT_RUN_DIR
+        / INVESTIGATION_FILE
+    ).write_text(
+        investigation.model_dump_json(
+            indent=2
+        ),
+        encoding="utf-8",
+    )
+
+    (
+        CURRENT_RUN_DIR
+        / ASSESSMENT_FILE
+    ).write_text(
+        assessment.model_dump_json(
+            indent=2
+        ),
+        encoding="utf-8",
+    )
+
+    (
+        CURRENT_RUN_DIR
+        / APPROVAL_FILE
+    ).write_text(
+        approval.model_dump_json(
+            indent=2
+        ),
+        encoding="utf-8",
+    )
+
+    (
+        CURRENT_RUN_DIR
+        / WORK_ORDER_FILE
+    ).write_text(
+        work_order.model_dump_json(
+            indent=2
+        ),
+        encoding="utf-8",
+    )
+
+    (
+        CURRENT_RUN_DIR
+        / MCP_TRACE_FILE
+    ).write_text(
+        "\n".join(
+            entry.model_dump_json()
+            for entry in trace
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.get(
+        "/api/artifacts/investigation"
+    )
+
+    assert response.status_code == 200
+
+    assert (
+        response.json()["summary"]
+        == "Evidence gathered."
+    )
+
+    response = client.get(
+        "/api/artifacts/mcp-trace"
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+
+    response = client.get(
+        "/api/artifacts/assessment"
+    )
+
+    assert response.status_code == 200
+
+    assert (
+        response.json()["confidence"]
+        == 0.8
+    )
+
+    response = client.get(
+        "/api/artifacts/approval"
+    )
+
+    assert response.status_code == 200
+
+    assert (
+        response.json()["approved"]
+        is True
+    )
+
+    response = client.get(
+        "/api/artifacts/work-order"
+    )
+
+    assert response.status_code == 200
+
+    assert (
+        response.json()[
+            "work_order"
+        ]["id"]
+        == "WO-TEST"
     )
