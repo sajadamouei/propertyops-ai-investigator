@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
-import { propertyOpsApi, type RealPipelineResults, type ResetRunRequest } from '../api/propertyOpsApi'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { propertyOpsApi, type RealPipelineResults, type ResetRunRequest, type RunRecoveryResponse } from '../api/propertyOpsApi'
 import { operationsView as knownIncidentView, stageDefinitions } from '../mocks/mockData'
 import type {
   ExperimentConfig,
@@ -63,6 +63,130 @@ function initialState(config = defaultExperimentConfig): LabRunState {
     workOrderDecision: 'waiting',
     detectionOutcome: 'not_run',
     isRunning: false,
+    stageErrors: {},
+  }
+}
+
+const STAGE_TO_API_STEP = {
+  generate: 'generate_data',
+  features: 'feature_engineering',
+  detection: 'anomaly_detection',
+  incident: 'build_incident',
+  investigation: 'ai_investigation',
+  rag: 'rag',
+  assessment: 'assessment',
+  approval: 'human_approval',
+  'work-order': 'work_order',
+} as const satisfies Record<PipelineStageId, string>
+
+function inputDateTime(value: string): string {
+  return value.slice(0, 16)
+}
+
+function recoveredConfig(snapshot: RunRecoveryResponse): ExperimentConfig {
+  const backendConfig = snapshot.manifest.config
+  const scenario = backendConfig.scenario === 'heating_valve_fault'
+    ? 'fault'
+    : backendConfig.scenario === 'normal_operation'
+      ? 'normal'
+      : 'custom'
+  const fault = backendConfig.faults[0]
+
+  return {
+    scenario,
+    days: backendConfig.days,
+    randomSeed: backendConfig.seed,
+    customFault: fault
+      ? {
+          sensorId: fault.sensor_id,
+          start: inputDateTime(fault.start),
+          end: inputDateTime(fault.end),
+          type: fault.fault_type,
+          value: fault.value ?? defaultExperimentConfig.customFault.value,
+        }
+      : { ...defaultExperimentConfig.customFault },
+  }
+}
+
+function recoveredResults(snapshot: RunRecoveryResponse): RealPipelineResults {
+  return {
+    manifest: snapshot.manifest,
+    generation: snapshot.generation,
+    rawTelemetry: snapshot.raw_telemetry,
+    featureStage: snapshot.feature_stage,
+    features: snapshot.features,
+    detectionStage: snapshot.detection_stage,
+    anomalyScores: snapshot.anomaly_scores,
+    events: snapshot.events,
+    detectionSummary: snapshot.detection_summary,
+    incidentStage: snapshot.incident_stage,
+    ragStage: snapshot.rag ? { ...snapshot.rag, step: 'rag' } : null,
+    investigation: snapshot.investigation,
+    mcpTrace: snapshot.mcp_trace,
+    assessment: snapshot.assessment,
+    approvalRequest: snapshot.approval_request,
+    approval: snapshot.approval,
+    workOrder: snapshot.work_order,
+  }
+}
+
+function recoveredRunState(snapshot: RunRecoveryResponse, config: ExperimentConfig): LabRunState {
+  const completedSteps = new Set(snapshot.manifest.completed_steps)
+  const noIncident = completedSteps.has('build_incident') && snapshot.incident_stage?.incident === null
+  const stages: PipelineStage[] = freshStages().map((stage) => ({
+    ...stage,
+    status: completedSteps.has(STAGE_TO_API_STEP[stage.id]) ? 'complete' as const : 'not_started' as const,
+  }))
+
+  if (noIncident) {
+    stages.forEach((stage) => {
+      if (NO_INCIDENT_STAGE_IDS.includes(stage.id)) stage.status = 'skipped'
+    })
+  } else if (snapshot.approval && !snapshot.approval.approved) {
+    const workOrder = stages.find((stage) => stage.id === 'work-order')
+    if (workOrder) workOrder.status = 'skipped'
+  }
+
+  const currentStage = stages.find(
+    (stage) => STAGE_TO_API_STEP[stage.id] === snapshot.manifest.current_step,
+  )
+  if (currentStage) {
+    currentStage.status = snapshot.manifest.status === 'waiting'
+      ? 'waiting'
+      : snapshot.manifest.status === 'failed'
+        ? 'failed'
+        : 'running'
+  } else if (snapshot.manifest.status === 'ready' && !noIncident) {
+    const nextStage = stages.find((stage) => stage.status === 'not_started')
+    if (nextStage) nextStage.status = 'ready'
+  }
+
+  const selectedStageId = snapshot.manifest.status === 'waiting' || snapshot.approval
+    ? 'approval'
+    : noIncident
+      ? 'incident'
+      : currentStage?.id ?? [...stages].reverse().find((stage) => stage.status === 'complete')?.id ?? 'generate'
+
+  const detectionOutcome = snapshot.incident_stage
+    ? snapshot.incident_stage.incident
+      ? 'anomaly_detected'
+      : 'normal'
+    : snapshot.detection_stage
+      ? snapshot.detection_stage.event_count > 0
+        ? 'anomaly_detected'
+        : 'normal'
+      : 'not_run'
+
+  return {
+    config,
+    stages,
+    selectedStageId,
+    activeTab: 'overview',
+    workOrderDecision: snapshot.approval
+      ? snapshot.approval.approved ? 'approved' : 'rejected'
+      : 'waiting',
+    detectionOutcome,
+    isRunning: snapshot.manifest.status === 'running',
     stageErrors: {},
   }
 }
@@ -165,8 +289,38 @@ const DemoRunContext = createContext<DemoRunContextValue | null>(null)
 export function DemoRunProvider({ children }: { children: ReactNode }) {
   const [runState, setRunState] = useState<LabRunState>(() => initialState())
   const [backendResults, setBackendResults] = useState<RealPipelineResults>(() => emptyBackendResults())
+  const [recoveryStatus, setRecoveryStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [recoveryError, setRecoveryError] = useState<string | null>(null)
+  const recoveryRequest = useRef<Promise<RunRecoveryResponse | null> | null>(null)
   const backendConfigKey = useRef<string | null>(null)
   const approvalRequestInFlight = useRef(false)
+
+  useEffect(() => {
+    let active = true
+    recoveryRequest.current ??= propertyOpsApi.recoverCurrentRun()
+
+    void recoveryRequest.current
+      .then((snapshot) => {
+        if (!active) return
+        if (snapshot) {
+          const config = recoveredConfig(snapshot)
+          backendConfigKey.current = configurationKey(config)
+          setBackendResults(recoveredResults(snapshot))
+          setRunState(recoveredRunState(snapshot, config))
+        }
+        setRecoveryStatus('ready')
+      })
+      .catch((error) => {
+        if (!active) return
+        setRecoveryError(errorMessage(error))
+        setRecoveryStatus('error')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
   const replaceRun = useCallback((config: ExperimentConfig) => {
     backendConfigKey.current = null
     setBackendResults(emptyBackendResults())
@@ -546,6 +700,14 @@ export function DemoRunProvider({ children }: { children: ReactNode }) {
     setInspectorTab,
     decideWorkOrder,
   }), [runState, backendResults, operationsView, setExperimentConfig, resetRun, runNextStep, runFullPipeline, selectStage, setInspectorTab, decideWorkOrder])
+
+  if (recoveryStatus === 'loading') {
+    return <div className="app-recovery" role="status">Restoring current run…</div>
+  }
+
+  if (recoveryStatus === 'error') {
+    return <div className="app-recovery app-recovery-error" role="alert">Unable to restore the current run. {recoveryError}</div>
+  }
 
   return <DemoRunContext.Provider value={value}>{children}</DemoRunContext.Provider>
 }

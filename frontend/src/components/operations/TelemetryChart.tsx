@@ -53,8 +53,8 @@ export function TelemetryChart({ data, incidentStart, incidentEnd }: { data: Tel
               </linearGradient>
             </defs>
             <CartesianGrid stroke="#e7e9e5" strokeDasharray="3 4" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#69706a' }} axisLine={false} tickLine={false} interval={1} />
-            <YAxis domain={config.domain} tick={{ fontSize: 11, fill: '#69706a' }} axisLine={false} tickLine={false} unit={config.unit === '°C' ? '°' : ''} />
+            <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#69706a' }} axisLine={false} tickLine={false} interval={1} />
+            <YAxis domain={config.domain} tick={{ fontSize: 12, fill: '#69706a' }} axisLine={false} tickLine={false} unit={config.unit === '°C' ? '°' : ''} />
             <Tooltip content={<TelemetryTooltip metric={metric} />} />
             {incidentStartLabel && incidentEndLabel && <ReferenceArea x1={incidentStartLabel} x2={incidentEndLabel} fill={`url(#${gradientId})`} />}
             <Line type="monotone" dataKey={metric} stroke={config.color} strokeWidth={2.5} dot={{ r: 3, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 5 }} />

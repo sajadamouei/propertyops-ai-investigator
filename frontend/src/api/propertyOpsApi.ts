@@ -1,4 +1,4 @@
-import { apiRequest } from './client'
+import { ApiError, apiRequest } from './client'
 
 export type ApiScenario = 'heating_valve_fault' | 'normal_operation' | 'custom_fault'
 export type ApiFaultType = 'spike' | 'multiplier' | 'offset' | 'stuck' | 'missing'
@@ -221,6 +221,35 @@ export interface RealPipelineResults {
   workOrder: WorkOrderCreationResultResponse | null
 }
 
+export interface RunRecoveryResponse {
+  manifest: RunManifest
+  generation: GenerateStageResponse | null
+  raw_telemetry: ArtifactTableResponse | null
+  feature_stage: FeatureStageResponse | null
+  features: ArtifactTableResponse | null
+  detection_stage: DetectionStageResponse | null
+  anomaly_scores: ArtifactTableResponse | null
+  events: ArtifactTableResponse | null
+  detection_summary: DetectionSummaryResponse | null
+  incident_stage: IncidentStageResponse | null
+  investigation: OperationalInvestigationResponse | null
+  mcp_trace: McpTraceEntryResponse[]
+  rag: (Omit<RagStageResponse, 'step'> & { k: number }) | null
+  assessment: InvestigationAssessmentResponse | null
+  approval_request: WorkflowApprovalPrompt | null
+  approval: ApprovalRecordResponse | null
+  work_order: WorkOrderCreationResultResponse | null
+}
+
+async function recoverCurrentRun(): Promise<RunRecoveryResponse | null> {
+  try {
+    return await apiRequest<RunRecoveryResponse>('/api/runs/current/recovery')
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
+}
+
 const post = <T>(path: string, body?: unknown) => apiRequest<T>(path, {
   method: 'POST',
   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -231,6 +260,7 @@ const artifact = (path: string, limit = 1000) => apiRequest<ArtifactTableRespons
 export const propertyOpsApi = {
   resetRun: (request: ResetRunRequest) => post<RunResponse>('/api/runs/reset', request),
   getCurrentRun: () => apiRequest<RunResponse>('/api/runs/current'),
+  recoverCurrentRun,
   generate: () => post<GenerateStageResponse>('/api/pipeline/generate'),
   features: () => post<FeatureStageResponse>('/api/pipeline/features'),
   detect: () => post<DetectionStageResponse>('/api/pipeline/detect'),

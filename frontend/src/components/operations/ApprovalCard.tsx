@@ -1,11 +1,17 @@
 import { Check, ClipboardCheck, ShieldCheck, X } from 'lucide-react'
 import type { ProposedWorkOrder } from '../../types'
 
-export function ApprovalCard({ workOrder, onDecision }: { workOrder: ProposedWorkOrder; onDecision: (decision: 'approved' | 'rejected') => void }) {
+interface ApprovalCardProps {
+  workOrder: ProposedWorkOrder
+  decisionPending: boolean
+  onDecision: (decision: 'approved' | 'rejected') => void
+}
+
+export function ApprovalCard({ workOrder, decisionPending, onDecision }: ApprovalCardProps) {
   const decided = workOrder.status !== 'waiting'
 
   return (
-    <section className={`approval-card approval-${workOrder.status}`}>
+    <section className={`approval-card approval-${workOrder.status}`} aria-busy={decisionPending}>
       <div className="approval-icon">{workOrder.status === 'approved' ? <Check size={22} /> : workOrder.status === 'rejected' ? <X size={22} /> : <ClipboardCheck size={22} />}</div>
       <div className="approval-main">
         <div className="approval-heading">
@@ -22,8 +28,8 @@ export function ApprovalCard({ workOrder, onDecision }: { workOrder: ProposedWor
         </div>
         {!decided ? (
           <div className="approval-actions">
-            <button className="button button-primary" onClick={() => onDecision('approved')}><Check size={16} /> Approve work order</button>
-            <button className="button button-secondary" onClick={() => onDecision('rejected')}><X size={16} /> Reject</button>
+            <button className="button button-primary" onClick={() => onDecision('approved')} disabled={decisionPending}><Check size={16} /> Approve work order</button>
+            <button className="button button-secondary" onClick={() => onDecision('rejected')} disabled={decisionPending}><X size={16} /> Reject</button>
             <span><ShieldCheck size={14} /> No action is taken without your decision</span>
           </div>
         ) : (

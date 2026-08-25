@@ -8,6 +8,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from propertyops_ai_investigator.api.schemas import (
     ArtifactTableResponse,
+    DetectionSummaryResponse,
     DetectionStageResponse,
     FeatureStageResponse,
     GenerateStageResponse,
@@ -15,6 +16,7 @@ from propertyops_ai_investigator.api.schemas import (
     RagStageRequest,
     RagStageResponse,
     ResetRunRequest,
+    RunRecoveryResponse,
     RunResponse,
     WorkflowApprovalPrompt,
     WorkflowDecisionRequest,
@@ -32,6 +34,7 @@ from propertyops_ai_investigator.services.workspace import (
     DETECTION_FILE,
     EVENTS_FILE,
     FEATURES_FILE,
+    INCIDENT_FILE,
     RAW_TELEMETRY_FILE,
     RAG_RESULTS_FILE,
     PipelineStep,
@@ -59,6 +62,7 @@ from propertyops_ai_investigator.services.rag_service import (
 )
 
 from propertyops_ai_investigator.workflows.investigation_graph import (
+    build_approval_request,
     resume_investigation_graph,
     run_investigation_graph,
 )
@@ -66,6 +70,7 @@ from propertyops_ai_investigator.workflows.investigation_graph import (
 from propertyops_ai_investigator.domain.models import (
     ApprovalRecord,
     InvestigationAssessment,
+    OperationalIncident,
     OperationalInvestigation,
     WorkOrderCreationResult,
 )
@@ -741,4 +746,246 @@ def get_work_order_artifact(
                 encoding="utf-8"
             )
         )
+    )
+
+
+@app.get(
+    "/api/runs/current/recovery",
+    response_model=RunRecoveryResponse,
+)
+def recover_current_run() -> RunRecoveryResponse:
+    try:
+        manifest = load_manifest(
+            CURRENT_RUN_DIR
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="No current run exists.",
+        ) from exc
+
+    raw_telemetry = (
+        read_csv_artifact(
+            RAW_TELEMETRY_FILE,
+            1000,
+        )
+        if (
+            CURRENT_RUN_DIR
+            / RAW_TELEMETRY_FILE
+        ).exists()
+        else None
+    )
+
+    generation = None
+    if raw_telemetry is not None:
+        sensor_ids = (
+            pd.read_csv(
+                CURRENT_RUN_DIR
+                / RAW_TELEMETRY_FILE,
+                usecols=["sensor_id"],
+            )["sensor_id"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+        generation = GenerateStageResponse(
+            step=PipelineStep.GENERATE_DATA,
+            row_count=raw_telemetry.total_rows,
+            sensor_ids=sensor_ids,
+        )
+
+    features = (
+        read_csv_artifact(
+            FEATURES_FILE,
+            1000,
+        )
+        if (
+            CURRENT_RUN_DIR
+            / FEATURES_FILE
+        ).exists()
+        else None
+    )
+    feature_stage = (
+        FeatureStageResponse(
+            step=(
+                PipelineStep.FEATURE_ENGINEERING
+            ),
+            row_count=features.total_rows,
+            columns=features.columns,
+        )
+        if features is not None
+        else None
+    )
+
+    detection_summary = None
+    detection_stage = None
+    detection_path = (
+        CURRENT_RUN_DIR
+        / DETECTION_FILE
+    )
+    if detection_path.exists():
+        detection_summary = (
+            DetectionSummaryResponse
+            .model_validate_json(
+                detection_path.read_text(
+                    encoding="utf-8"
+                )
+            )
+        )
+        detection_stage = (
+            DetectionStageResponse(
+                step=(
+                    PipelineStep
+                    .ANOMALY_DETECTION
+                ),
+                **detection_summary.model_dump(),
+            )
+        )
+
+    anomaly_scores = (
+        read_csv_artifact(
+            ANOMALY_SCORES_FILE,
+            1000,
+        )
+        if (
+            CURRENT_RUN_DIR
+            / ANOMALY_SCORES_FILE
+        ).exists()
+        else None
+    )
+    events = (
+        read_csv_artifact(
+            EVENTS_FILE,
+            1000,
+        )
+        if (
+            CURRENT_RUN_DIR
+            / EVENTS_FILE
+        ).exists()
+        else None
+    )
+
+    incident = None
+    incident_stage = None
+    incident_path = (
+        CURRENT_RUN_DIR
+        / INCIDENT_FILE
+    )
+    if incident_path.exists():
+        incident_data = json.loads(
+            incident_path.read_text(
+                encoding="utf-8"
+            )
+        )
+        if incident_data is not None:
+            incident = (
+                OperationalIncident
+                .model_validate(
+                    incident_data
+                )
+            )
+        incident_stage = IncidentStageResponse(
+            step=PipelineStep.BUILD_INCIDENT,
+            incident=incident,
+        )
+
+    investigation_path = (
+        CURRENT_RUN_DIR
+        / INVESTIGATION_FILE
+    )
+    investigation = (
+        get_investigation_artifact()
+        if investigation_path.exists()
+        else None
+    )
+
+    trace_path = (
+        CURRENT_RUN_DIR
+        / MCP_TRACE_FILE
+    )
+    mcp_trace = (
+        get_mcp_trace_artifact()
+        if trace_path.exists()
+        else []
+    )
+
+    rag_path = (
+        CURRENT_RUN_DIR
+        / RAG_RESULTS_FILE
+    )
+    rag = (
+        get_rag_results()
+        if rag_path.exists()
+        else None
+    )
+
+    assessment_path = (
+        CURRENT_RUN_DIR
+        / ASSESSMENT_FILE
+    )
+    assessment = (
+        get_assessment_artifact()
+        if assessment_path.exists()
+        else None
+    )
+
+    approval_path = (
+        CURRENT_RUN_DIR
+        / APPROVAL_FILE
+    )
+    approval = (
+        get_approval_artifact()
+        if approval_path.exists()
+        else None
+    )
+
+    work_order_path = (
+        CURRENT_RUN_DIR
+        / WORK_ORDER_FILE
+    )
+    work_order = (
+        get_work_order_artifact()
+        if work_order_path.exists()
+        else None
+    )
+
+    approval_request = None
+    if (
+        manifest.status == RunStatus.WAITING
+        and manifest.current_step
+        == PipelineStep.HUMAN_APPROVAL
+        and incident is not None
+        and assessment is not None
+    ):
+        approval_request = (
+            WorkflowApprovalPrompt
+            .model_validate(
+                build_approval_request(
+                    incident,
+                    assessment,
+                )
+            )
+        )
+
+    return RunRecoveryResponse(
+        manifest=manifest,
+        generation=generation,
+        raw_telemetry=raw_telemetry,
+        feature_stage=feature_stage,
+        features=features,
+        detection_stage=detection_stage,
+        anomaly_scores=anomaly_scores,
+        events=events,
+        detection_summary=(
+            detection_summary
+        ),
+        incident_stage=incident_stage,
+        investigation=investigation,
+        mcp_trace=mcp_trace,
+        rag=rag,
+        assessment=assessment,
+        approval_request=approval_request,
+        approval=approval,
+        work_order=work_order,
     )

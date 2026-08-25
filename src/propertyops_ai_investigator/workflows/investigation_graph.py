@@ -98,6 +98,26 @@ def load_incident(
         data
     )
 
+
+def build_approval_request(
+    incident: OperationalIncident,
+    assessment: InvestigationAssessment,
+) -> dict[str, Any]:
+    return {
+        "type": "work_order_approval",
+        "question": (
+            "Approve creating a maintenance "
+            "work order?"
+        ),
+        "incident_id": incident.id,
+        "equipment_id": incident.equipment_id,
+        "likely_issue": assessment.likely_issue,
+        "confidence": assessment.confidence,
+        "recommended_next_step": (
+            assessment.recommended_next_step
+        ),
+    }
+
 def route_after_approval(
     state: InvestigationGraphState,
 ) -> str:
@@ -221,28 +241,10 @@ def build_investigation_graph(
         )
 
         response = interrupt(
-            {
-                "type": "work_order_approval",
-                "question": (
-                    "Approve creating a maintenance "
-                    "work order?"
-                ),
-                "incident_id": (
-                    incident.id
-                ),
-                "equipment_id": (
-                    incident.equipment_id
-                ),
-                "likely_issue": (
-                    assessment.likely_issue
-                ),
-                "confidence": (
-                    assessment.confidence
-                ),
-                "recommended_next_step": (
-                    assessment.recommended_next_step
-                ),
-            }
+            build_approval_request(
+                incident,
+                assessment,
+            )
         )
 
         human_response = (

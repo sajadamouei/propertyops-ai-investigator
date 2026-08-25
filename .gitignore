@@ -12,3 +12,5 @@ data/runtime/
 
 # Virtual environments
 .venv
+frontend/playwright-report/
+frontend/test-results/

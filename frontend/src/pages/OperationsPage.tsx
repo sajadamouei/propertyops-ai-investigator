@@ -22,6 +22,7 @@ export function OperationsPage() {
   const evidenceReady = runState.stages.find((stage) => stage.id === 'investigation')?.status === 'complete'
   const approvalStageStatus = runState.stages.find((stage) => stage.id === 'approval')?.status
   const approvalAvailable = approvalStageStatus === 'waiting' || runState.workOrderDecision !== 'waiting'
+  const decisionPending = approvalStageStatus === 'waiting' && runState.isRunning
   const investigationCopy = {
     investigating: { label: 'Investigation in progress', detail: 'Collecting operational evidence' },
     assessment_ready: { label: 'Assessment ready', detail: 'Awaiting operator decision' },
@@ -98,7 +99,7 @@ export function OperationsPage() {
             <ArrowRight size={24} />
           </section>
           {approvalAvailable ? (
-            <ApprovalCard workOrder={operationsView.proposedWorkOrder} onDecision={decideWorkOrder} />
+            <ApprovalCard workOrder={operationsView.proposedWorkOrder} decisionPending={decisionPending} onDecision={decideWorkOrder} />
           ) : (
             <section className="approval-card approval-unavailable">
               <div className="approval-icon"><ClipboardList size={21} /></div>

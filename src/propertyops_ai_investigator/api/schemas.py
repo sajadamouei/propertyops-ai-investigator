@@ -63,6 +63,12 @@ class DetectionStageResponse(BaseModel):
     event_count: int
 
 
+class DetectionSummaryResponse(BaseModel):
+    threshold: float
+    anomalous_observations: int
+    event_count: int
+
+
 class IncidentStageResponse(BaseModel):
     step: PipelineStep
     incident: OperationalIncident | None
@@ -103,6 +109,33 @@ class WorkflowApprovalPrompt(BaseModel):
     confidence: float
 
     recommended_next_step: str
+
+
+class RunRecoveryResponse(BaseModel):
+    manifest: RunManifest
+
+    generation: GenerateStageResponse | None = None
+    raw_telemetry: ArtifactTableResponse | None = None
+
+    feature_stage: FeatureStageResponse | None = None
+    features: ArtifactTableResponse | None = None
+
+    detection_stage: DetectionStageResponse | None = None
+    anomaly_scores: ArtifactTableResponse | None = None
+    events: ArtifactTableResponse | None = None
+    detection_summary: DetectionSummaryResponse | None = None
+
+    incident_stage: IncidentStageResponse | None = None
+
+    investigation: OperationalInvestigation | None = None
+    mcp_trace: list[ToolTraceEntry] = Field(
+        default_factory=list
+    )
+    rag: RagArtifact | None = None
+    assessment: InvestigationAssessment | None = None
+    approval_request: WorkflowApprovalPrompt | None = None
+    approval: ApprovalRecord | None = None
+    work_order: WorkOrderCreationResult | None = None
 
 
 class WorkflowStartResponse(BaseModel):
