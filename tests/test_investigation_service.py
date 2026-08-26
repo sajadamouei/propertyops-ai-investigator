@@ -1,14 +1,38 @@
+import asyncio
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
+
+from propertyops_ai_investigator.services import (
+    investigation_service,
+)
+from propertyops_ai_investigator.data.experiment import (
+    ExperimentConfig,
+    ScenarioType,
+)
 from propertyops_ai_investigator.domain.models import (
     IncidentSeverity,
     OperationalIncident,
+    OperationalInvestigation,
     TelemetryEvidence,
 )
+from propertyops_ai_investigator.services.ai_timeout import (
+    AI_STAGE_TIMEOUT_SECONDS,
+)
 from propertyops_ai_investigator.services.investigation_service import (
+    McpInvestigationService,
     build_investigation_prompt,
     extract_tool_trace,
+)
+from propertyops_ai_investigator.services.workspace import (
+    INVESTIGATION_FILE,
+    MCP_TRACE_FILE,
+    PipelineStep,
+    RunManifest,
+    RunStatus,
+    load_manifest,
+    save_manifest,
 )
 
 
@@ -52,6 +76,20 @@ def create_test_incident():
                 aggregation="min",
             ),
         ],
+    )
+
+
+def create_test_manifest(tmp_path):
+    save_manifest(
+        RunManifest(
+            run_id="test-run",
+            config=ExperimentConfig(
+                scenario=(
+                    ScenarioType.NORMAL_OPERATION
+                ),
+            ),
+        ),
+        tmp_path,
     )
 
 
@@ -154,3 +192,122 @@ def test_extract_tool_trace():
         trace[1].tool_call_id
         == "call-1"
     )
+
+
+@pytest.mark.anyio
+async def test_investigation_success_remains_unchanged(
+    tmp_path,
+    monkeypatch,
+):
+    create_test_manifest(tmp_path)
+
+    expected = OperationalInvestigation(
+        summary="Operational evidence gathered.",
+        telemetry_findings=[
+            "Heating valve was highly open."
+        ],
+        maintenance_findings=[
+            "Previous actuator calibration."
+        ],
+        occupant_impact=[
+            "Cold comfort complaints."
+        ],
+        evidence=[
+            "Telemetry and records retrieved."
+        ],
+    )
+
+    class FakeAgent:
+        async def ainvoke(self, request):
+            assert "messages" in request
+            return {
+                "structured_response": expected,
+                "messages": [],
+            }
+
+    monkeypatch.setattr(
+        investigation_service,
+        "ChatGoogleGenerativeAI",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        investigation_service,
+        "create_agent",
+        lambda **kwargs: FakeAgent(),
+    )
+
+    service = McpInvestigationService(
+        tmp_path
+    )
+
+    assert (
+        service.ai_timeout_seconds
+        == AI_STAGE_TIMEOUT_SECONDS
+        == 60.0
+    )
+
+    artifact = await service.run(
+        create_test_incident()
+    )
+
+    assert artifact.investigation == expected
+    assert artifact.trace == []
+    assert (
+        tmp_path / INVESTIGATION_FILE
+    ).exists()
+    assert (
+        tmp_path / MCP_TRACE_FILE
+    ).exists()
+
+    manifest = load_manifest(tmp_path)
+    assert manifest.status == RunStatus.READY
+    assert manifest.current_step is None
+    assert (
+        PipelineStep.AI_INVESTIGATION
+        in manifest.completed_steps
+    )
+
+
+@pytest.mark.anyio
+async def test_investigation_timeout_marks_failed_and_propagates(
+    tmp_path,
+    monkeypatch,
+):
+    create_test_manifest(tmp_path)
+
+    class HangingAgent:
+        async def ainvoke(self, request):
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        investigation_service,
+        "ChatGoogleGenerativeAI",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        investigation_service,
+        "create_agent",
+        lambda **kwargs: HangingAgent(),
+    )
+
+    with pytest.raises(TimeoutError):
+        await McpInvestigationService(
+            tmp_path,
+            ai_timeout_seconds=0.001,
+        ).run(
+            create_test_incident()
+        )
+
+    manifest = load_manifest(tmp_path)
+    assert manifest.status == RunStatus.FAILED
+    assert (
+        manifest.current_step
+        == PipelineStep.AI_INVESTIGATION
+    )
+    assert (
+        PipelineStep.AI_INVESTIGATION
+        not in manifest.completed_steps
+    )
+    assert not (
+        tmp_path / INVESTIGATION_FILE
+    ).exists()

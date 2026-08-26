@@ -511,6 +511,14 @@ async def start_workflow(
             detail="No current run exists.",
         ) from exc
 
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "AI workflow stage timed out."
+            ),
+        ) from exc
+
     except (
         RuntimeError,
         ValueError,

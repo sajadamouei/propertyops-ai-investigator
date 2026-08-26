@@ -528,6 +528,34 @@ def test_workflow_start_and_reject_through_api(
         == "complete"
     )
 
+
+def test_workflow_start_timeout_returns_gateway_timeout(
+    client,
+    monkeypatch,
+):
+    async def fake_start(
+        checkpointer,
+    ):
+        raise TimeoutError
+
+    monkeypatch.setattr(
+        api_main,
+        "run_investigation_graph",
+        fake_start,
+    )
+
+    response = client.post(
+        "/api/workflow/start"
+    )
+
+    assert response.status_code == 504
+    assert response.json() == {
+        "detail": (
+            "AI workflow stage timed out."
+        )
+    }
+
+
 def test_workflow_artifact_endpoints(
     client,
 ):

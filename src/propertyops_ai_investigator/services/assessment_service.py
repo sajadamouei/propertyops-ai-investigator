@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -12,6 +13,9 @@ from propertyops_ai_investigator.domain.models import (
 )
 from propertyops_ai_investigator.services.rag_service import (
     RagArtifact,
+)
+from propertyops_ai_investigator.services.ai_timeout import (
+    AI_STAGE_TIMEOUT_SECONDS,
 )
 from propertyops_ai_investigator.services.workspace import (
     ASSESSMENT_FILE,
@@ -88,8 +92,14 @@ class AssessmentService:
     def __init__(
         self,
         workspace_dir: Path = CURRENT_RUN_DIR,
+        ai_timeout_seconds: float = (
+            AI_STAGE_TIMEOUT_SECONDS
+        ),
     ) -> None:
         self.workspace_dir = workspace_dir
+        self.ai_timeout_seconds = (
+            ai_timeout_seconds
+        )
 
     async def run(
         self,
@@ -124,15 +134,18 @@ class AssessmentService:
                 )
             )
 
-            assessment = (
-                await structured_model.ainvoke(
-                    build_assessment_prompt(
-                        incident,
-                        investigation,
-                        rag,
+            async with asyncio.timeout(
+                self.ai_timeout_seconds
+            ):
+                assessment = (
+                    await structured_model.ainvoke(
+                        build_assessment_prompt(
+                            incident,
+                            investigation,
+                            rag,
+                        )
                     )
                 )
-            )
 
             (
                 self.workspace_dir

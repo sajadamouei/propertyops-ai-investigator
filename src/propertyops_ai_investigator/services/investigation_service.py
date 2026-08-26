@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -18,6 +19,9 @@ from propertyops_ai_investigator.agents.mcp_tools import (
 from propertyops_ai_investigator.domain.models import (
     OperationalIncident,
     OperationalInvestigation,
+)
+from propertyops_ai_investigator.services.ai_timeout import (
+    AI_STAGE_TIMEOUT_SECONDS,
 )
 from propertyops_ai_investigator.services.workspace import (
     CURRENT_RUN_DIR,
@@ -222,8 +226,14 @@ class McpInvestigationService:
     def __init__(
         self,
         workspace_dir: Path = CURRENT_RUN_DIR,
+        ai_timeout_seconds: float = (
+            AI_STAGE_TIMEOUT_SECONDS
+        ),
     ) -> None:
         self.workspace_dir = workspace_dir
+        self.ai_timeout_seconds = (
+            ai_timeout_seconds
+        )
 
     def _load_incident(
         self,
@@ -311,20 +321,23 @@ class McpInvestigationService:
                 ),
             )
 
-            result = await agent.ainvoke(
-                {
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": (
-                                build_investigation_prompt(
-                                    incident
-                                )
-                            ),
-                        }
-                    ]
-                }
-            )
+            async with asyncio.timeout(
+                self.ai_timeout_seconds
+            ):
+                result = await agent.ainvoke(
+                    {
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": (
+                                    build_investigation_prompt(
+                                        incident
+                                    )
+                                ),
+                            }
+                        ]
+                    }
+                )
 
             investigation = result[
                 "structured_response"
