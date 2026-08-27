@@ -14,7 +14,7 @@ services:
     expose:
       - "8000"
     volumes:
-      - propertyops-runtime:/app/data/runtime
+      - mcp-runtime:/app/data/runtime
     healthcheck:
       test:
         [
@@ -36,7 +36,7 @@ services:
     expose:
       - "8080"
     volumes:
-      - propertyops-runtime:/app/data/runtime
+      - api-runtime:/app/data/runtime
     depends_on:
       mcp:
         condition: service_healthy
@@ -74,4 +74,5 @@ services:
       retries: 10
 
 volumes:
-  propertyops-runtime:
+  api-runtime:
+  mcp-runtime:
