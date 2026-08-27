@@ -1,0 +1,77 @@
+services:
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: propertyops-backend:dev
+    command:
+      - python
+      - -m
+      - propertyops_ai_investigator.mcp_servers.run_http
+    environment:
+      PROPERTYOPS_MCP_HOST: "0.0.0.0"
+      PROPERTYOPS_MCP_PORT: "8000"
+    expose:
+      - "8000"
+    volumes:
+      - propertyops-runtime:/app/data/runtime
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; s=socket.create_connection(('127.0.0.1',8000),2); s.close()"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    image: propertyops-backend:dev
+    environment:
+      PROPERTYOPS_MCP_URL: "http://mcp:8000/mcp"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+    expose:
+      - "8080"
+    volumes:
+      - propertyops-runtime:/app/data/runtime
+    depends_on:
+      mcp:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=2)"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_PROPERTY_OPS_API_URL: ""
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1/ || exit 1"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  propertyops-runtime:

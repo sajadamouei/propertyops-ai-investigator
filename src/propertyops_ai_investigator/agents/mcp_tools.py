@@ -1,8 +1,13 @@
+import os
+
 from mcp import Client
 from langchain_core.tools import tool
 
 
-MCP_URL = "http://127.0.0.1:8000/mcp"
+MCP_URL = os.getenv(
+    "PROPERTYOPS_MCP_URL",
+    "http://127.0.0.1:8000/mcp",
+)
 
 
 async def call_mcp_tool(
