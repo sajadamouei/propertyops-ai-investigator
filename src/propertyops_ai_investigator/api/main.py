@@ -1,3 +1,6 @@
+import os
+from uuid import UUID, uuid4
+
 import json
 from contextlib import asynccontextmanager
 
@@ -47,6 +50,7 @@ from propertyops_ai_investigator.services.workspace import (
     INVESTIGATION_FILE,
     MCP_TRACE_FILE,
     WORK_ORDER_FILE,
+    session_run_dir,
 )
 
 from propertyops_ai_investigator.data.experiment import (
@@ -114,6 +118,73 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+SESSION_COOKIE_NAME = "propertyops_session"
+
+SESSION_ISOLATION_ENABLED = (
+    os.getenv(
+        "PROPERTYOPS_SESSION_ISOLATION",
+        "0",
+    )
+    == "1"
+)
+
+SECURE_SESSION_COOKIE = (
+    os.getenv(
+        "PROPERTYOPS_SECURE_SESSION_COOKIE",
+        "0",
+    )
+    == "1"
+)
+
+
+@app.middleware("http")
+async def anonymous_session(
+    request: Request,
+    call_next,
+):
+    if not SESSION_ISOLATION_ENABLED:
+        request.state.workspace_dir = (
+            CURRENT_RUN_DIR
+        )
+
+        return await call_next(request)
+
+    session_id = request.cookies.get(
+        SESSION_COOKIE_NAME
+    )
+
+    try:
+        if session_id is not None:
+            session_id = str(
+                UUID(session_id)
+            )
+    except ValueError:
+        session_id = None
+
+    new_session = session_id is None
+
+    if new_session:
+        session_id = str(uuid4())
+
+    request.state.workspace_dir = (
+        session_run_dir(
+            session_id
+        )
+    )
+
+    response = await call_next(request)
+
+    if new_session:
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=session_id,
+            httponly=True,
+            secure=SECURE_SESSION_COOKIE,
+            samesite="lax",
+            path="/",
+        )
+
+    return response
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
@@ -126,9 +197,15 @@ def health() -> dict[str, str]:
     "/api/runs/current",
     response_model=RunResponse,
 )
-def get_current_run() -> RunResponse:
+def get_current_run(
+    request: Request,
+) -> RunResponse:
+    workspace_dir = request.state.workspace_dir
+
     try:
-        manifest = load_manifest()
+        manifest = load_manifest(
+            workspace_dir
+        )
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=404,
@@ -145,24 +222,28 @@ def get_current_run() -> RunResponse:
     response_model=RunResponse,
 )
 def reset_run(
-    request: ResetRunRequest,
+    payload: ResetRunRequest,
+    request: Request,
 ) -> RunResponse:
-    if request.scenario == ScenarioType.CUSTOM_FAULT:
+    workspace_dir = request.state.workspace_dir
+
+    if payload.scenario == ScenarioType.CUSTOM_FAULT:
         config = ExperimentConfig(
-            scenario=request.scenario,
-            days=request.days,
-            seed=request.seed,
-            faults=request.faults,
+            scenario=payload.scenario,
+            days=payload.days,
+            seed=payload.seed,
+            faults=payload.faults,
         )
     else:
         config = create_scenario_config(
-            request.scenario,
-            days=request.days,
-            seed=request.seed,
+            payload.scenario,
+            days=payload.days,
+            seed=payload.seed,
         )
 
     manifest = reset_current_run(
-        config
+        config,
+        workspace_dir,
     )
 
     return RunResponse(
@@ -174,9 +255,15 @@ def reset_run(
     "/api/pipeline/generate",
     response_model=GenerateStageResponse,
 )
-def generate_data() -> GenerateStageResponse:
+def generate_data(
+    request: Request,
+) -> GenerateStageResponse:
+    workspace_dir = request.state.workspace_dir
+
     try:
-        readings = PipelineService().generate_data()
+        readings = PipelineService(
+            workspace_dir
+        ).generate_data()
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=400,
@@ -198,10 +285,16 @@ def generate_data() -> GenerateStageResponse:
     "/api/pipeline/features",
     response_model=FeatureStageResponse,
 )
-def engineer_features() -> FeatureStageResponse:
+def engineer_features(
+    request: Request,
+) -> FeatureStageResponse:
+    workspace_dir = request.state.workspace_dir
+
     try:
         features = (
-            PipelineService()
+            PipelineService(
+                workspace_dir
+            )
             .engineer_features()
         )
     except (RuntimeError, ValueError) as exc:
@@ -221,10 +314,16 @@ def engineer_features() -> FeatureStageResponse:
     "/api/pipeline/detect",
     response_model=DetectionStageResponse,
 )
-def detect_anomalies() -> DetectionStageResponse:
+def detect_anomalies(
+    request: Request,
+) -> DetectionStageResponse:
+    workspace_dir = request.state.workspace_dir
+
     try:
         scored, events, threshold = (
-            PipelineService()
+            PipelineService(
+                workspace_dir
+            )
             .detect_anomalies()
         )
     except (RuntimeError, ValueError) as exc:
@@ -247,10 +346,16 @@ def detect_anomalies() -> DetectionStageResponse:
     "/api/pipeline/incident",
     response_model=IncidentStageResponse,
 )
-def build_incident() -> IncidentStageResponse:
+def build_incident(
+    request: Request,
+) -> IncidentStageResponse:
+    workspace_dir = request.state.workspace_dir
+
     try:
         incident = (
-            PipelineService()
+            PipelineService(
+                workspace_dir
+            )
             .build_incident()
         )
     except (
@@ -272,8 +377,9 @@ def build_incident() -> IncidentStageResponse:
 def read_csv_artifact(
     filename: str,
     limit: int,
+    workspace_dir,
 ) -> ArtifactTableResponse:
-    path = CURRENT_RUN_DIR / filename
+    path = workspace_dir / filename
 
     if not path.exists():
         raise HTTPException(
@@ -310,6 +416,7 @@ def read_csv_artifact(
     response_model=ArtifactTableResponse,
 )
 def get_raw_telemetry(
+    request: Request,
     limit: int = Query(
         default=100,
         ge=1,
@@ -319,6 +426,7 @@ def get_raw_telemetry(
     return read_csv_artifact(
         RAW_TELEMETRY_FILE,
         limit,
+        request.state.workspace_dir,
     )
 
 
@@ -327,6 +435,7 @@ def get_raw_telemetry(
     response_model=ArtifactTableResponse,
 )
 def get_features(
+    request: Request,
     limit: int = Query(
         default=100,
         ge=1,
@@ -336,6 +445,7 @@ def get_features(
     return read_csv_artifact(
         FEATURES_FILE,
         limit,
+        request.state.workspace_dir,
     )
 
 
@@ -344,6 +454,7 @@ def get_features(
     response_model=ArtifactTableResponse,
 )
 def get_anomaly_scores(
+    request: Request,
     limit: int = Query(
         default=100,
         ge=1,
@@ -353,6 +464,7 @@ def get_anomaly_scores(
     return read_csv_artifact(
         ANOMALY_SCORES_FILE,
         limit,
+        request.state.workspace_dir,
     )
 
 
@@ -361,6 +473,7 @@ def get_anomaly_scores(
     response_model=ArtifactTableResponse,
 )
 def get_events(
+    request: Request,
     limit: int = Query(
         default=100,
         ge=1,
@@ -370,13 +483,18 @@ def get_events(
     return read_csv_artifact(
         EVENTS_FILE,
         limit,
+        request.state.workspace_dir,
     )
 
 
 @app.get("/api/artifacts/detection")
-def get_detection_summary() -> dict:
+def get_detection_summary(
+    request: Request,
+) -> dict:
+    workspace_dir = request.state.workspace_dir
+
     path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / DETECTION_FILE
     )
 
@@ -397,12 +515,17 @@ def get_detection_summary() -> dict:
     response_model=RagStageResponse,
 )
 def run_rag(
-    request: RagStageRequest,
+    payload: RagStageRequest,
+    request: Request,
 ) -> RagStageResponse:
+    workspace_dir = request.state.workspace_dir
+
     try:
-        artifact = RagService().run(
-            query=request.query,
-            k=request.k,
+        artifact = RagService(
+            workspace_dir
+        ).run(
+            query=payload.query,
+            k=payload.k,
         )
 
     except (
@@ -430,9 +553,13 @@ def run_rag(
     "/api/artifacts/rag",
     response_model=RagArtifact,
 )
-def get_rag_results() -> RagArtifact:
+def get_rag_results(
+    request: Request,
+) -> RagArtifact:
+    workspace_dir = request.state.workspace_dir
+
     path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / RAG_RESULTS_FILE
     )
 
@@ -455,9 +582,12 @@ def get_rag_results() -> RagArtifact:
 async def start_workflow(
     request: Request,
 ) -> WorkflowStartResponse:
+    workspace_dir = request.state.workspace_dir
+
     try:
         result = await (
             run_investigation_graph(
+                workspace_dir=workspace_dir,
                 checkpointer=(
                     request.app.state
                     .workflow_checkpointer
@@ -483,7 +613,9 @@ async def start_workflow(
             )
         )
 
-        manifest = load_manifest()
+        manifest = load_manifest(
+            workspace_dir
+        )
 
         return WorkflowStartResponse(
             status=(
@@ -537,8 +669,14 @@ async def decide_workflow(
     request: WorkflowDecisionRequest,
     http_request: Request,
 ) -> WorkflowDecisionResponse:
+    workspace_dir = (
+        http_request.state.workspace_dir
+    )
+
     try:
-        manifest = load_manifest()
+        manifest = load_manifest(
+            workspace_dir
+        )
 
     except FileNotFoundError as exc:
         raise HTTPException(
@@ -565,6 +703,7 @@ async def decide_workflow(
             resume_investigation_graph(
                 approved=request.approved,
                 rationale=request.rationale,
+                workspace_dir=workspace_dir,
                 checkpointer=(
                     http_request.app.state
                     .workflow_checkpointer
@@ -572,7 +711,9 @@ async def decide_workflow(
             )
         )
 
-        final_manifest = load_manifest()
+        final_manifest = load_manifest(
+            workspace_dir
+        )
 
         return WorkflowDecisionResponse(
             status="complete",
@@ -600,9 +741,12 @@ async def decide_workflow(
     response_model=OperationalInvestigation,
 )
 def get_investigation_artifact(
+    request: Request,
 ) -> OperationalInvestigation:
+    workspace_dir = request.state.workspace_dir
+
     path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / INVESTIGATION_FILE
     )
 
@@ -630,9 +774,12 @@ def get_investigation_artifact(
     response_model=list[ToolTraceEntry],
 )
 def get_mcp_trace_artifact(
+    request: Request,
 ) -> list[ToolTraceEntry]:
+    workspace_dir = request.state.workspace_dir
+
     path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / MCP_TRACE_FILE
     )
 
@@ -672,9 +819,12 @@ def get_mcp_trace_artifact(
     response_model=InvestigationAssessment,
 )
 def get_assessment_artifact(
+    request: Request,
 ) -> InvestigationAssessment:
+    workspace_dir = request.state.workspace_dir
+
     path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / ASSESSMENT_FILE
     )
 
@@ -702,9 +852,12 @@ def get_assessment_artifact(
     response_model=ApprovalRecord,
 )
 def get_approval_artifact(
+    request: Request,
 ) -> ApprovalRecord:
+    workspace_dir = request.state.workspace_dir
+
     path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / APPROVAL_FILE
     )
 
@@ -732,9 +885,12 @@ def get_approval_artifact(
     response_model=WorkOrderCreationResult,
 )
 def get_work_order_artifact(
+    request: Request,
 ) -> WorkOrderCreationResult:
+    workspace_dir = request.state.workspace_dir
+
     path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / WORK_ORDER_FILE
     )
 
@@ -761,10 +917,13 @@ def get_work_order_artifact(
     "/api/runs/current/recovery",
     response_model=RunRecoveryResponse,
 )
-def recover_current_run() -> RunRecoveryResponse:
+def recover_current_run(
+    request: Request,
+) -> RunRecoveryResponse:
+    workspace_dir = request.state.workspace_dir
     try:
         manifest = load_manifest(
-            CURRENT_RUN_DIR
+            workspace_dir
         )
     except FileNotFoundError as exc:
         raise HTTPException(
@@ -776,9 +935,10 @@ def recover_current_run() -> RunRecoveryResponse:
         read_csv_artifact(
             RAW_TELEMETRY_FILE,
             1000,
+            workspace_dir,
         )
         if (
-            CURRENT_RUN_DIR
+            workspace_dir
             / RAW_TELEMETRY_FILE
         ).exists()
         else None
@@ -788,7 +948,7 @@ def recover_current_run() -> RunRecoveryResponse:
     if raw_telemetry is not None:
         sensor_ids = (
             pd.read_csv(
-                CURRENT_RUN_DIR
+                workspace_dir
                 / RAW_TELEMETRY_FILE,
                 usecols=["sensor_id"],
             )["sensor_id"]
@@ -807,9 +967,10 @@ def recover_current_run() -> RunRecoveryResponse:
         read_csv_artifact(
             FEATURES_FILE,
             1000,
+            workspace_dir,
         )
         if (
-            CURRENT_RUN_DIR
+            workspace_dir
             / FEATURES_FILE
         ).exists()
         else None
@@ -829,7 +990,7 @@ def recover_current_run() -> RunRecoveryResponse:
     detection_summary = None
     detection_stage = None
     detection_path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / DETECTION_FILE
     )
     if detection_path.exists():
@@ -855,9 +1016,10 @@ def recover_current_run() -> RunRecoveryResponse:
         read_csv_artifact(
             ANOMALY_SCORES_FILE,
             1000,
+            workspace_dir,
         )
         if (
-            CURRENT_RUN_DIR
+            workspace_dir
             / ANOMALY_SCORES_FILE
         ).exists()
         else None
@@ -866,9 +1028,10 @@ def recover_current_run() -> RunRecoveryResponse:
         read_csv_artifact(
             EVENTS_FILE,
             1000,
+            workspace_dir,
         )
         if (
-            CURRENT_RUN_DIR
+            workspace_dir
             / EVENTS_FILE
         ).exists()
         else None
@@ -877,7 +1040,7 @@ def recover_current_run() -> RunRecoveryResponse:
     incident = None
     incident_stage = None
     incident_path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / INCIDENT_FILE
     )
     if incident_path.exists():
@@ -899,61 +1062,61 @@ def recover_current_run() -> RunRecoveryResponse:
         )
 
     investigation_path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / INVESTIGATION_FILE
     )
     investigation = (
-        get_investigation_artifact()
+        get_investigation_artifact(request)
         if investigation_path.exists()
         else None
     )
 
     trace_path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / MCP_TRACE_FILE
     )
     mcp_trace = (
-        get_mcp_trace_artifact()
+        get_mcp_trace_artifact(request)
         if trace_path.exists()
         else []
     )
 
     rag_path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / RAG_RESULTS_FILE
     )
     rag = (
-        get_rag_results()
+        get_rag_results(request)
         if rag_path.exists()
         else None
     )
 
     assessment_path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / ASSESSMENT_FILE
     )
     assessment = (
-        get_assessment_artifact()
+        get_assessment_artifact(request)
         if assessment_path.exists()
         else None
     )
 
     approval_path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / APPROVAL_FILE
     )
     approval = (
-        get_approval_artifact()
+        get_approval_artifact(request)
         if approval_path.exists()
         else None
     )
 
     work_order_path = (
-        CURRENT_RUN_DIR
+        workspace_dir
         / WORK_ORDER_FILE
     )
     work_order = (
-        get_work_order_artifact()
+        get_work_order_artifact(request)
         if work_order_path.exists()
         else None
     )

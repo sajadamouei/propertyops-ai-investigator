@@ -33,6 +33,8 @@ services:
       PROPERTYOPS_MCP_URL: "http://mcp:8000/mcp"
       GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
+      PROPERTYOPS_SESSION_ISOLATION: "1"
+      PROPERTYOPS_SECURE_SESSION_COOKIE: "0"
     expose:
       - "8080"
     volumes:
