@@ -80,7 +80,7 @@ jobs:
 
     if: >
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/phase-14-cicd'
+      github.ref == 'refs/heads/main'
 
     runs-on: ubuntu-latest
     timeout-minutes: 45
