@@ -35,6 +35,13 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --frozen --dev
 
+      - name: Generate deterministic synthetic data
+        run: |
+          uv run python -c "from pathlib import Path; from propertyops_ai_investigator.data.experiment import ScenarioType, create_scenario_config; from propertyops_ai_investigator.data.generate_synthetic import generate_sensor_readings; path = Path('data/synthetic/sensor_readings.csv'); path.parent.mkdir(parents=True, exist_ok=True); config = create_scenario_config(ScenarioType.HEATING_VALVE_FAULT, days=14, seed=42); generate_sensor_readings(config).to_csv(path, index=False); print(f'Generated {path}')"
+
+      - name: Run Python tests
+        run: uv run pytest  
+
       - name: Run Python tests
         run: uv run pytest
 
