@@ -15,6 +15,20 @@ CURRENT_RUN_DIR = Path(
     "data/runtime/current_run"
 )
 
+SESSIONS_DIR = Path(
+    "data/runtime/sessions"
+)
+
+
+def session_run_dir(
+    session_id: str,
+) -> Path:
+    return (
+        SESSIONS_DIR
+        / session_id
+        / "current_run"
+    )
+
 CHECKPOINT_DB_PATH = Path(
     "data/runtime/langgraph_checkpoints.sqlite"
 )

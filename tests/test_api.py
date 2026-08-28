@@ -345,8 +345,10 @@ def test_workflow_start_and_reject_through_api(
     )
 
     async def fake_start(
+        workspace_dir,
         checkpointer,
     ):
+        assert workspace_dir == CURRENT_RUN_DIR
         assert checkpointer is (
             app.state.workflow_checkpointer
         )
@@ -407,8 +409,10 @@ def test_workflow_start_and_reject_through_api(
     async def fake_resume(
         approved,
         rationale=None,
+        workspace_dir=CURRENT_RUN_DIR,
         checkpointer=None,
     ):
+        assert workspace_dir == CURRENT_RUN_DIR
         assert checkpointer is (
             app.state.workflow_checkpointer
         )
@@ -534,8 +538,10 @@ def test_workflow_start_timeout_returns_gateway_timeout(
     monkeypatch,
 ):
     async def fake_start(
+        workspace_dir,
         checkpointer,
     ):
+        assert workspace_dir == CURRENT_RUN_DIR
         raise TimeoutError
 
     monkeypatch.setattr(
