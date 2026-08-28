@@ -1,0 +1,205 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - phase-14-cicd
+
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Test and Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "0.12.6"
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install Python dependencies
+        run: uv sync --frozen --dev
+
+      - name: Generate deterministic synthetic data
+        run: |
+          uv run python -c "from pathlib import Path; from propertyops_ai_investigator.data.experiment import ScenarioType, create_scenario_config; from propertyops_ai_investigator.data.generate_synthetic import generate_sensor_readings; path = Path('data/synthetic/sensor_readings.csv'); path.parent.mkdir(parents=True, exist_ok=True); config = create_scenario_config(ScenarioType.HEATING_VALVE_FAULT, days=14, seed=42); generate_sensor_readings(config).to_csv(path, index=False); print(f'Generated {path}')"
+
+      - name: Run Python tests
+        run: uv run pytest
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build backend Docker image
+        run: >
+          docker build
+          --file Dockerfile.backend
+          --tag propertyops-backend:ci
+          .
+
+      - name: Build Azure frontend Docker image
+        run: >
+          docker build
+          --file frontend/Dockerfile.azure
+          --tag propertyops-frontend:ci
+          frontend
+  deploy:
+    name: Deploy to Azure
+    needs: quality
+
+    if: >
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      ACR_NAME: propertyopsacr847c0446
+      ACR_SERVER: propertyopsacr847c0446.azurecr.io
+      RESOURCE_GROUP: rg-propertyops-portfolio
+      CONTAINER_APP: ca-propertyops-ai
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "0.12.6"
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install Python dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Generate deterministic synthetic data
+        run: |
+          uv run python -c "from pathlib import Path; from propertyops_ai_investigator.data.experiment import ScenarioType, create_scenario_config; from propertyops_ai_investigator.data.generate_synthetic import generate_sensor_readings; path = Path('data/synthetic/sensor_readings.csv'); path.parent.mkdir(parents=True, exist_ok=True); config = create_scenario_config(ScenarioType.HEATING_VALVE_FAULT, days=14, seed=42); generate_sensor_readings(config).to_csv(path, index=False); print(f'Generated {path}')"
+
+      - name: Login to Azure
+        uses: azure/login@v3
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Container Registry
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and push backend image
+        run: |
+          BACKEND_IMAGE="$ACR_SERVER/propertyops-backend:$GITHUB_SHA"
+
+          docker build \
+            --file Dockerfile.backend \
+            --tag "$BACKEND_IMAGE" \
+            .
+
+          docker push "$BACKEND_IMAGE"
+
+      - name: Build and push frontend image
+        run: |
+          FRONTEND_IMAGE="$ACR_SERVER/propertyops-frontend:$GITHUB_SHA"
+
+          docker build \
+            --file frontend/Dockerfile.azure \
+            --tag "$FRONTEND_IMAGE" \
+            frontend
+
+          docker push "$FRONTEND_IMAGE"
+
+      - name: Install Container Apps extension
+        run: |
+          az extension add \
+            --name containerapp \
+            --upgrade \
+            --yes
+
+      - name: Deploy MCP container
+        run: |
+          az containerapp update \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --container-name mcp \
+            --image "$ACR_SERVER/propertyops-backend:$GITHUB_SHA" \
+            --output none
+
+      - name: Deploy API container
+        run: |
+          az containerapp update \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --container-name api \
+            --image "$ACR_SERVER/propertyops-backend:$GITHUB_SHA" \
+            --output none
+
+      - name: Deploy frontend container
+        run: |
+          az containerapp update \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --container-name frontend \
+            --image "$ACR_SERVER/propertyops-frontend:$GITHUB_SHA" \
+            --output none
+
+      - name: Verify deployment health
+        run: |
+          FQDN=$(az containerapp show \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+
+          echo "Checking https://$FQDN/api/health"
+
+          for attempt in {1..30}; do
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              "https://$FQDN/api/health"; then
+
+              echo
+              echo "Deployment is healthy."
+              exit 0
+            fi
+
+            echo "Waiting for revision... attempt $attempt/30"
+            sleep 10
+          done
+
+          echo "Deployment health check failed."
+          exit 1
