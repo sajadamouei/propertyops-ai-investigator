@@ -11,7 +11,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className={isLab ? 'app-shell lab-shell' : 'app-shell'}>
       <header className="topbar">
         <NavLink to="/operations" className="brand" aria-label="PropertyOps AI home">
-          <span className="brand-mark"><Activity size={18} strokeWidth={2.3} /></span>
+          <span className="brand-mark">
+            <img
+              src="/propertyops-icon.png"
+              alt=""
+            />
+          </span>
           <span>
             <strong>PropertyOps</strong>
             <small>AI Investigator</small>

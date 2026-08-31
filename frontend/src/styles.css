@@ -37,7 +37,19 @@ h1, h2, h3, p { margin-top: 0; }
 .app-shell { min-height: 100vh; }
 .topbar { height: 68px; padding: 0 max(24px, calc((100vw - 1440px) / 2)); display: flex; align-items: center; gap: 38px; border-bottom: 1px solid #dadeda; background: rgba(248,249,246,.96); position: sticky; top: 0; z-index: 50; }
 .brand { display: flex; align-items: center; gap: 11px; min-width: 188px; }
-.brand-mark { width: 34px; height: 34px; border-radius: 9px; background: #1c4c3d; color: #d4eca7; display: grid; place-items: center; }
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
 .brand > span:last-child { display: flex; flex-direction: column; line-height: 1.05; }
 .brand strong { font-size: 15px; letter-spacing: -.02em; }
 .brand small { font-size: 11px; text-transform: uppercase; letter-spacing: .11em; color: #737a74; margin-top: 4px; }
@@ -50,7 +62,6 @@ h1, h2, h3, p { margin-top: 0; }
 .live-dot, .scenario-dot { width: 7px; height: 7px; border-radius: 50%; background: #42a26e; box-shadow: 0 0 0 3px rgba(66,162,110,.12); flex: 0 0 auto; }
 .menu-button { display: none; background: transparent; border: 0; color: inherit; }
 .lab-shell .topbar { color: #e7edeb; background: rgba(12,19,22,.97); border-color: #263137; }
-.lab-shell .brand-mark { background: #b9db75; color: #122018; }
 .lab-shell .brand small, .lab-shell .topbar-context, .lab-shell .primary-nav a { color: #8f9ba0; }
 .lab-shell .primary-nav a.active { color: #dce8dd; }
 .lab-shell .primary-nav a::after { background: #b9db75; }
