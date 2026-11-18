@@ -1,8 +1,10 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardList, Gauge, MessageSquareText, ShieldCheck, Sparkles, Wrench } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { SeverityBadge } from '../components/common/Badges'
 import { ApprovalCard } from '../components/operations/ApprovalCard'
 import { EvidenceGroup } from '../components/operations/EvidenceGroup'
 import { TelemetryChart } from '../components/operations/TelemetryChart'
+import { demoScenarios, recommendedRun } from '../content/demoGuide'
 import { useDemoRun } from '../state/DemoRunContext'
 
 export function OperationsPage() {
@@ -127,7 +129,7 @@ function OperationsNormalState() {
     ? 'Building systems operating normally'
     : anomalyInProgress
       ? 'A potential anomaly is moving through the investigation pipeline'
-      : 'Run a scenario in the Lab to populate this operational view'
+      : 'Start a simulated scenario in the Lab to see how PropertyOps detects an operational issue, investigates the evidence, and recommends a next action.'
 
   return (
     <div className="page operations-page">
@@ -140,7 +142,7 @@ function OperationsNormalState() {
           </div>
           <div className="incident-meta">
             <div><span>Building</span><strong>BLDG-001</strong><small>Property operations</small></div>
-            <div><span>Latest pipeline run</span><strong>{runState.isRunning ? 'In progress' : normalConfirmed ? 'Completed' : anomalyInProgress ? 'In progress' : 'Not run'}</strong><small>{runState.config.scenario === 'normal' ? 'Normal Operation' : runState.config.scenario === 'fault' ? 'Heating Valve Fault' : 'Custom Fault'}</small></div>
+            <div><span>Latest pipeline run</span><strong>{runState.isRunning ? 'In progress' : normalConfirmed ? 'Completed' : anomalyInProgress ? 'In progress' : 'Not run'}</strong><small>{demoScenarios[runState.config.scenario].name}</small></div>
             <div><span>Anomaly detection</span><strong className="status-inline"><CheckCircle2 size={15} /> {normalConfirmed ? 'No anomaly detected' : anomalyInProgress ? 'Anomaly detected' : 'Awaiting run'}</strong><small>{normalConfirmed && backendResults.detectionSummary ? `Detection threshold ${backendResults.detectionSummary.threshold.toFixed(4)}` : 'Pipeline status is synchronized'}</small></div>
             <div><span>Work order</span><strong>{normalConfirmed ? 'Not required' : 'None created'}</strong><small>No pending maintenance action</small></div>
           </div>
@@ -158,7 +160,15 @@ function OperationsNormalState() {
         <div>
           <span className="eyebrow">Latest operational result</span>
           <h2>{normalConfirmed ? 'All monitored signals are within the expected operating pattern' : anomalyInProgress ? 'The pipeline is building the operational incident' : 'Operations is ready for the next investigation run'}</h2>
-          <p>{normalConfirmed ? 'Generate Data, Feature Engineering, and Anomaly Detection completed successfully. No incident was created, downstream investigation stages were skipped, and no work order is required.' : anomalyInProgress ? 'An anomaly was detected. This view will update automatically when the incident and assessment stages complete.' : 'Select and run a scenario in the Lab. Results and approval decisions will stay synchronized here during this browser session.'}</p>
+          {normalConfirmed || anomalyInProgress ? (
+            <p>{normalConfirmed ? 'Generate Data, Feature Engineering, and Anomaly Detection completed successfully. No incident was created, downstream investigation stages were skipped, and no work order is required.' : 'An anomaly was detected. This view will update automatically when the incident and assessment stages complete.'}</p>
+          ) : (
+            <div className="operations-demo-start">
+              <Link to="/lab" className="button button-primary">Start demo investigation <ArrowRight size={16} aria-hidden="true" /></Link>
+              <p>Recommended: {recommendedRun.name} · {recommendedRun.days} days · Seed {recommendedRun.seed}</p>
+              <p>All building data in this demo is simulated.</p>
+            </div>
+          )}
         </div>
       </section>
       <footer className="page-footer"><ClipboardList size={14} /> Property operations investigation view</footer>

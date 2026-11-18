@@ -1,4 +1,4 @@
-﻿import { expect, test } from '@playwright/test'
+﻿import { expect, test } from './fixtures'
 
 async function expectSuccessfulResponse<T>(response: import('@playwright/test').Response): Promise<T> {
   const responseBody = await response.text()
