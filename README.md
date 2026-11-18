@@ -1,6 +1,6 @@
 # PropertyOps AI Investigator
 
-**From scattered building data to an evidence-based maintenance decision—with a person in control.**
+**From scattered building data to an evidence-based maintenance decision, with a person in control.**
 
 ## The real-world problem
 
