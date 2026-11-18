@@ -8,13 +8,13 @@ Modern buildings generate operational information across many separate systems: 
 
 When something goes wrong with a building’s heating or ventilation, the clues are often spread across different systems. A property operations team might see an unusual sensor reading, receive complaints about cold rooms, and need to check past work orders and technical guides to understand what happened. Connecting those clues means switching between tools, matching equipment and timestamps, and deciding what to investigate next.
 
-For example, imagine an air-handling unit running after hours: the heating valve is almost fully open, but the supply air stays cold. Is it an actuator problem, a control-schedule issue, or something else? **A sensor alert tells you something is wrong, but not why—or what to do about it.**
+For example, imagine an air-handling unit running after hours: the heating valve is almost fully open, but the supply air stays cold. Is it an actuator problem, a control-schedule issue, or something else? **A sensor alert tells you something is wrong, but not why or what to do about it.**
 
 ## The approach
 
 I built PropertyOps AI Investigator to explore how that investigation could happen in one workflow. **Machine learning** detects unusual HVAC behavior. An **AI agent** uses MCP tools to gather sensor data, maintenance history, and tenant complaints; **RAG** retrieves relevant troubleshooting guidance. **LangGraph** brings the evidence into a structured assessment and recommends a practical next step, while **human approval** is required before a demo work order can be created.
 
-It's an independent, interactive project built with simulated building data. The goal is to demonstrate a safer, more connected way to go from scattered signals to a decision—not to claim that the AI has confirmed a fault or that it controls a real building.
+It's an independent, interactive project built with simulated building data. The goal is to demonstrate a safer, more connected way to go from scattered signals to a decision, not to claim that the AI has confirmed a fault or that it controls a real building.
 
 **[🚀 Try the live demo](https://ca-propertyops-ai.bravemeadow-1c7ef3e7.northeurope.azurecontainerapps.io/operations)** · **[📊 Explore the project presentation](https://propertyops-ai-presentation.sajad-amouei.workers.dev/)**
 
