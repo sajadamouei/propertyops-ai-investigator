@@ -1,4 +1,5 @@
 import { Play, RotateCcw, SkipForward } from 'lucide-react'
+import { demoScenarios, recommendedRun } from '../../content/demoGuide'
 import type { ExperimentConfig, ExperimentScenario, FaultType } from '../../types'
 
 interface ExperimentControlsProps {
@@ -17,15 +18,24 @@ export function ExperimentControls({ config, isRunning, onChange, onReset, onNex
   return (
     <section className="lab-controls panel-dark">
       <div className="controls-heading">
-        <div><span className="lab-eyebrow">Experiment setup</span><h2>Pipeline controls</h2></div>
+        <div>
+          <span className="lab-eyebrow">Experiment setup</span>
+          <h2>Pipeline controls</h2>
+          <p className="lab-controls-hint">Choose a simulated operating scenario, then run the full pipeline or inspect it one stage at a time.</p>
+        </div>
         <div className="run-actions">
           <button className="button button-ghost-dark" onClick={onReset} disabled={isRunning}><RotateCcw size={15} /> Reset</button>
           <button className="button button-outline-dark" onClick={onNext} disabled={isRunning}><SkipForward size={15} /> Run next step</button>
-          <button className="button button-lime" onClick={onFullRun} disabled={isRunning}><Play size={15} fill="currentColor" /> Run full pipeline</button>
+          <button className="button button-lime" onClick={onFullRun} disabled={isRunning}><Play size={15} fill="currentColor" /> {recommendedRun.action}</button>
         </div>
       </div>
       <div className="control-grid">
-        <label className="control-field control-wide"><span>Scenario</span><select value={config.scenario} onChange={(event) => setField('scenario', event.target.value as ExperimentScenario)} disabled={isRunning}><option value="fault">Heating Valve Fault</option><option value="normal">Normal Operation</option><option value="custom">Custom Fault</option></select></label>
+        <label className="control-field control-wide">
+          <span>Scenario</span>
+          <select value={config.scenario} onChange={(event) => setField('scenario', event.target.value as ExperimentScenario)} disabled={isRunning}>
+            {Object.entries(demoScenarios).map(([scenario, { name }]) => <option key={scenario} value={scenario}>{name}</option>)}
+          </select>
+        </label>
         <label className="control-field"><span>Days</span><input type="number" min="1" max="60" value={config.days} onChange={(event) => setField('days', Number(event.target.value))} disabled={isRunning} /></label>
         <label className="control-field"><span>Random seed</span><input type="number" min="0" value={config.randomSeed} onChange={(event) => setField('randomSeed', Number(event.target.value))} disabled={isRunning} /></label>
         <div className="scenario-summary"><span className={`scenario-dot scenario-${config.scenario}`} /><div><strong>{config.scenario === 'fault' ? 'Known demo incident' : config.scenario === 'normal' ? 'Baseline validation' : 'User-defined injection'}</strong><small>{config.scenario === 'normal' ? 'No incident expected' : 'Incident path expected'}</small></div></div>

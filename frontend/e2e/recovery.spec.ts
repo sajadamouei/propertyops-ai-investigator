@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 async function expectSuccessfulJson<T>(response: import('@playwright/test').Response): Promise<T> {
   const body = await response.text()
